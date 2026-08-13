@@ -130,4 +130,5 @@ def executar_testes():
     print("==========================\n")
 
 
-   
+if __name__ == "__main__":
+    executar_testes()
