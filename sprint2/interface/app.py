@@ -15,6 +15,7 @@ Execução:
 import os
 import sys
 import json
+import html
 import subprocess
 import shutil
 from pathlib import Path
@@ -407,8 +408,14 @@ with st.sidebar:
                         st.error("❌ Falha ao executar o pipeline. Verifique as dependências.")
 
         if arquivo_upload is not None:
-            extensao = Path(arquivo_upload.name).suffix.lower()
-            destino = PASTA_UPLOADS / arquivo_upload.name
+            nome_seguro = Path(arquivo_upload.name).name  # descarta qualquer componente de diretório
+            extensao = Path(nome_seguro).suffix.lower()
+            destino = (PASTA_UPLOADS / nome_seguro).resolve()
+
+            # Garante que o caminho resolvido continua dentro de PASTA_UPLOADS (evita path traversal)
+            if not destino.is_relative_to(PASTA_UPLOADS.resolve()):
+                st.error("❌ Nome de arquivo inválido.")
+                st.stop()
 
             # Salva o arquivo temporariamente
             with open(destino, "wb") as f:
@@ -543,7 +550,7 @@ for msg in st.session_state.messages:
             f"""
             <div class="chat-user">
                 <b>👤 Você</b><br>
-                {msg["content"]}
+                {html.escape(msg["content"])}
             </div>
             """,
             unsafe_allow_html=True,
@@ -569,7 +576,7 @@ for msg in st.session_state.messages:
             f"""
             <div class="{classe_css}">
                 <b>{icone} Genera AI</b> {badge_modo(modo_msg)}<br><br>
-                {msg["content"]}
+                {html.escape(msg["content"]).replace(chr(10), "<br>")}
             </div>
             """,
             unsafe_allow_html=True,
