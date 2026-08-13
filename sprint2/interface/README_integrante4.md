@@ -62,7 +62,6 @@ Usuário
 |---|---|
 | `app.py` | Interface Streamlit completa — chat, sidebar, estado, renderização |
 | `llm_connector.py` | Integração real com OpenAI; substitui `gerar_resposta_simulada()` |
-| `requirements_interface.txt` | Dependências Python da interface |
 | `.env.example` | Template para configurar a API Key |
 | `README_integrante4.md` | Esta documentação |
 
@@ -116,7 +115,7 @@ o usuário deve poder verificar de onde cada informação foi extraída.
 
 ```bash
 # 1. A partir da raiz do repositório
-pip install -r sprint2/interface/requirements_interface.txt
+pip install -r requirements.txt
 
 # 2. Configurar API Key
 cp sprint2/interface/.env.example sprint2/interface/.env

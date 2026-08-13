@@ -1,8 +1,0 @@
-# Integrante 4 — Interface e Integração com LLM
-# Sprint 2 · Genera AI · Dasa · FIAP
-
-streamlit>=1.32.0
-openai>=1.0.0
-chromadb>=0.4.0
-sentence-transformers>=2.2.0
-python-dotenv>=1.0.0

@@ -12,7 +12,7 @@ Projeto acadêmico FIAP para a Dasa/Genera: transforma relatórios genéticos em
 ```
 pip install -r requirements.txt
 ```
-Instala as dependências do pipeline (chromadb, sentence-transformers) e da interface (streamlit, openai, python-dotenv). A interface também tem seu próprio `sprint2/interface/requirements_interface.txt` com o mesmo conteúdo, documentado separadamente no README do integrante 4.
+Instala as dependências do pipeline (chromadb, sentence-transformers) e da interface (streamlit, openai, python-dotenv) — arquivo único para o repositório inteiro.
 
 ### Pipeline completo (gera embeddings + indexa no ChromaDB)
 ```
@@ -54,8 +54,8 @@ A API key também pode ser digitada direto na sidebar da interface, sem `.env`.
 
 ### Pipeline de dados ponta a ponta
 ```
-relatorio PDF (relatorio_genera_simulado.pdf)
-   ↓ extração conceitual — documentada em README_engenheiro_dados.md, não implementada em código
+relatorio PDF (sprint1/relatorio_genera_simulado.pdf)
+   ↓ extração conceitual — documentada em sprint1/README_engenheiro_dados.md, não implementada em código
 dados_estruturados.json          fonte única de verdade: dados do paciente, resultados, ancestralidade, metadata
    ↓ sprint2/embeddings/gerar_embeddings.py
 sprint2/embeddings/chunks.json   chunks semânticos + embeddings (all-MiniLM-L6-v2, 384 dim) — gerado, git-ignored
@@ -90,7 +90,7 @@ Fluxo de `agente_especialista.responder()`: pergunta → `guardrails.verificar_g
 `sprint2/agente/agente_especialista.py` e `sprint2/agente/testes_agente.py` usam imports diretos (`from prompts import ...`, `from agente_especialista import responder`) sem prefixo de pacote. Isso só resolve porque quem importa insere manualmente `sprint2/agente` no `sys.path` antes do import — é o que `app.py` e `llm_connector.py` fazem explicitamente (`sys.path.insert(0, ...)`), e o que acontece automaticamente ao rodar `python sprint2/agente/arquivo.py` diretamente (Python adiciona o diretório do script ao `sys.path`). Importar esses módulos de qualquer outro lugar sem esse ajuste quebra. `sprint2/testes/testar_busca.py` já resolve isso de forma diferente, adicionando a raiz do repo ao `sys.path` para importar via `sprint2.vetorial.buscar`.
 
 ### `dados_estruturados.json`
-Schema único consumido por toda a Sprint 2: `paciente` → `sumario` → `resultados[]` (`doenca`, `categoria`, `risco`, `marcadores_geneticos[]`, `escore_poligênico_percentil`, `descricao_tecnica`, `descricao_simples`, `recomendacao`, `urgencia_medica`) → `ancestralidade[]` → `metadata`. Detalhado em `README_engenheiro_dados.md` e `mapeamento_secoes.md`.
+Schema único consumido por toda a Sprint 2: `paciente` → `sumario` → `resultados[]` (`doenca`, `categoria`, `risco`, `marcadores_geneticos[]`, `escore_poligênico_percentil`, `descricao_tecnica`, `descricao_simples`, `recomendacao`, `urgencia_medica`) → `ancestralidade[]` → `metadata`. Detalhado em `sprint1/README_engenheiro_dados.md` e `sprint1/mapeamento_secoes.md`. O arquivo em si permanece na raiz do repositório (não em `sprint1/`) porque é entrada ativa do pipeline da Sprint 2, referenciada por caminho hardcoded em três módulos (`gerar_embeddings.py`, `pipeline_completo.py`, `app.py`).
 
-### Documentação do produto
-A especificação de produto (problema, justificativa de RAG, guard rails de negócio para saúde, UX, governança/LGPD) está em `README.md`, `README_engenheiro_dados.md`, `sprint2/README_sprint2.md` e `sprint2/agente/README_agente.md`. Decisões já fixadas nesses documentos (modelo de embeddings `all-MiniLM-L6-v2`, LLM alvo GPT-4.1 Mini/Gemini Flash, regras de guardrail) devem ser respeitadas ao alterar o código, a menos que o usuário peça explicitamente para revisá-las.
+### Documentação do projeto
+`sprint1/` reúne os documentos e o PDF de origem da Sprint 1 (extração de dados). A especificação de produto (problema, justificativa de RAG, guard rails de negócio para saúde, UX, governança/LGPD) está em `README.md`, `sprint1/README_engenheiro_dados.md`, `sprint2/README_sprint2.md` e `sprint2/agente/README_agente.md`. Decisões já fixadas nesses documentos (modelo de embeddings `all-MiniLM-L6-v2`, LLM alvo GPT-4.1 Mini/Gemini Flash, regras de guardrail) devem ser respeitadas ao alterar o código, a menos que o usuário peça explicitamente para revisá-las.

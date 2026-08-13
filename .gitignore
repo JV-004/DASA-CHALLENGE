@@ -4,6 +4,9 @@ sprint2/vetorial/base_vetorial/
 # Chunks com embeddings (arquivo grande, gerado pelo pipeline)
 sprint2/embeddings/chunks.json
 
+# Uploads temporários recebidos pela interface Streamlit
+sprint2/interface/uploads/
+
 # Python
 __pycache__/
 *.py[cod]

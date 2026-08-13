@@ -198,7 +198,7 @@ Após a limpeza, os dados são mapeados para um schema JSON padronizado.
 
 O campo `descricao_simples` é gerado pelo LLM a partir da `descricao_tecnica` — é o coração da proposta de valor do sistema.
 
-Para o JSON completo com todos os dados do relatório simulado, ver [`dados_estruturados.json`](./dados_estruturados.json).
+Para o JSON completo com todos os dados do relatório simulado, ver [`dados_estruturados.json`](../dados_estruturados.json).
 
 ---
 
@@ -333,5 +333,5 @@ A transformação de texto bruto para JSON estruturado é o que permite à IA re
 | [`relatorio_genera_simulado.pdf`](./relatorio_genera_simulado.pdf) | PDF fictício e realista do relatório genético        |
 | [`mapeamento_secoes.md`](./mapeamento_secoes.md)                   | Documentação detalhada das seções do PDF             |
 | [`extracao_tecnica.md`](./extracao_tecnica.md)                     | Justificativa técnica da extração e limpeza          |
-| [`dados_estruturados.json`](./dados_estruturados.json)             | JSON completo com todos os dados do relatório        |
+| [`dados_estruturados.json`](../dados_estruturados.json)            | JSON completo com todos os dados do relatório        |
 | [`exemplos_interacao.md`](./exemplos_interacao.md)                 | 6 exemplos de pergunta e resposta baseados nos dados |

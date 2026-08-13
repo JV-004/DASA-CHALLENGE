@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://www.fiap.com.br/">
-    <img src="docs/images/logo-fiap (2).png" alt="FIAP" width="35%"/>
+    <img src="docs/images/logo-fiap.png" alt="FIAP" width="35%"/>
   </a>
 </p>
 
@@ -408,9 +408,18 @@ python testes_agente.py
 ```
 projeto/
 │
-├── dados_estruturados.json              ← JSON do relatório (Sprint 1)
-├── relatorio_genera_simulado.pdf        ← PDF original simulado
-├── README.md                            ← README geral (Sprint 1)
+├── dados_estruturados.json              ← JSON do relatório (gerado na Sprint 1, consumido pela Sprint 2)
+├── README.md                            ← README geral
+├── requirements.txt                     ← dependências do pipeline + interface
+├── CLAUDE.md                            ← guia de contexto para agentes de IA no repositório
+│
+├── sprint1/
+│   ├── README_engenheiro_dados.md       ← documentação do Engenheiro de Dados
+│   ├── relatorio_genera_simulado.pdf    ← PDF original simulado
+│   ├── mapeamento_secoes.md
+│   ├── extracao_tecnica.md
+│   ├── priorizacao_campos.md
+│   └── exemplos_interacao.md
 │
 ├── sprint2/
 │   │
@@ -439,20 +448,15 @@ projeto/
 │   ├── interface/
 │   │   ├── app.py                       ← interface Streamlit (Int. 4)
 │   │   ├── llm_connector.py             ← integração OpenAI
-│   │   ├── requirements_interface.txt
 │   │   ├── .env.example
 │   │   └── README_integrante4.md
 │   │
 │   └── README_sprint2.md                ← documentação técnica Sprint 2
 │
 └── docs/
-    ├── images/
-    │   ├── logo-fiap (2).png
-    │   └── arquitetura.png
-    ├── mapeamento_secoes.md
-    ├── extracao_tecnica.md
-    ├── priorizacao_campos.md
-    └── exemplos_interacao.md
+    └── images/
+        ├── logo-fiap.png
+        └── arquitetura.png
 ```
 
 > **Importante:** `chunks.json` e `base_vetorial/` estão no `.gitignore`. Cada membro do grupo deve rodar o pipeline localmente para gerá-los. Eles não são versionados por questões de tamanho e por conterem dados do relatório.
