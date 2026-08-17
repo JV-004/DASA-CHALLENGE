@@ -1,16 +1,18 @@
 """
-Módulo de NLP - Resumos Automáticos
-DASA / Genera - Sprint 3
+Módulo de NLP — Resumos Automáticos
+DASA / Genera — Sprint 3
 
 Responsável por:
-1. gerar resumo estruturado do relatório genético;
-2. gerar síntese automática das interações do usuário;
-3. identificar os principais temas abordados;
-4. atualizar o resumo quando novas interações são adicionadas.
 
-A implementação utiliza regras determinísticas para evitar
-a criação de informações que não estejam presentes nos dados
-ou no histórico das interações.
+1. gerar resumo estruturado do relatório genético;
+2. analisar o histórico de interações entre usuário e agente;
+3. identificar automaticamente os principais temas discutidos;
+4. gerar uma síntese acessível das interações;
+5. atualizar o resumo quando novas interações forem adicionadas.
+
+O módulo utiliza regras determinísticas e rastreáveis para reduzir
+o risco de criar interpretações que não estejam presentes nos dados
+originais ou nas interações do usuário.
 """
 
 import json
@@ -19,18 +21,21 @@ from pathlib import Path
 
 
 # ============================================================
-# CONFIGURAÇÃO DE TEMAS
+# VOCABULÁRIO CONTROLADO DE TEMAS
 # ============================================================
 
 TEMAS_INTERACAO = {
+
     "diabetes": {
         "palavras": [
             "diabetes",
             "glicose",
             "glicemia",
-            "insulina"
+            "insulina",
+            "diabetes mellitus"
         ],
-        "descricao": "risco genético relacionado ao diabetes"
+        "descricao":
+            "risco genético relacionado ao diabetes"
     },
 
     "cancer": {
@@ -39,35 +44,50 @@ TEMAS_INTERACAO = {
             "cancer",
             "carcinoma",
             "brca",
+            "brca1",
+            "brca2",
             "tumor",
+            "oncologia",
             "oncológico",
             "oncologico"
         ],
-        "descricao": "predisposição genética relacionada ao câncer"
+        "descricao":
+            "predisposição genética relacionada ao câncer"
     },
 
     "cardiovascular": {
         "palavras": [
             "hipertensão",
             "hipertensao",
-            "pressão",
-            "pressao",
+            "pressão arterial",
+            "pressao arterial",
             "cardiovascular",
             "coração",
-            "coracao"
+            "coracao",
+            "cardíaco",
+            "cardiaco"
         ],
-        "descricao": "risco e acompanhamento cardiovascular"
+        "descricao":
+            "risco e características cardiovasculares"
     },
 
     "ancestralidade": {
         "palavras": [
             "ancestralidade",
             "ancestral",
+            "origem genética",
+            "origem genetica",
             "origem",
             "população",
-            "populacao"
+            "populacao",
+            "etnia",
+            "europeia",
+            "africana",
+            "asiática",
+            "asiatica"
         ],
-        "descricao": "ancestralidade genética"
+        "descricao":
+            "ancestralidade genética"
     },
 
     "interpretacao_risco": {
@@ -76,38 +96,119 @@ TEMAS_INTERACAO = {
             "risco médio",
             "risco medio",
             "risco baixo",
-            "percentil",
+            "risco aumentado",
+            "risco reduzido",
+            "chance maior",
+            "chance menor",
             "predisposição",
             "predisposicao",
+            "predisposição genética",
+            "predisposicao genetica",
+            "percentil",
+            "o que significa",
             "significa risco",
-            "o que significa"
+            "probabilidade",
+            "chance de desenvolver"
         ],
-        "descricao": "interpretação dos níveis de risco genético"
+        "descricao":
+            "interpretação dos níveis de risco genético"
+    },
+
+    "alteracoes_dna": {
+        "palavras": [
+            "variante genética",
+            "variante genetica",
+            "alteração no dna",
+            "alteracao no dna",
+            "alteração genética",
+            "alteracao genetica",
+            "polimorfismo",
+            "alelo"
+        ],
+        "descricao":
+            "alterações e características encontradas no DNA"
+    },
+
+    "informacoes_dna": {
+        "palavras": [
+            "marcadores genéticos",
+            "marcadores geneticos",
+            "características do dna",
+            "caracteristicas do dna",
+            "informações do dna",
+            "informacoes do dna",
+            "genótipo",
+            "genotipo"
+        ],
+        "descricao":
+            "informações analisadas no DNA"
     },
 
     "acompanhamento": {
         "palavras": [
-            "médico",
-            "medico",
-            "consulta",
-            "procurar",
-            "acompanhamento",
+            "preciso procurar um médico",
+            "preciso procurar médico",
+            "devo procurar um médico",
+            "devo procurar médico",
+            "preciso de médico",
+            "consulta médica",
+            "consulta medica",
+            "acompanhamento médico",
+            "acompanhamento medico",
+            "qual médico",
+            "qual medico",
             "especialista",
             "endocrinologista",
             "cardiologista",
-            "geneticista"
+            "geneticista",
+            "oncologista"
         ],
-        "descricao": "necessidade de acompanhamento profissional"
+        "descricao":
+            "necessidade de acompanhamento profissional"
+    },
+
+    "diagnostico": {
+        "palavras": [
+            "diagnóstico",
+            "diagnostico",
+            "tenho a doença",
+            "tenho essa doença",
+            "significa que tenho",
+            "certeza de desenvolver",
+            "vou desenvolver",
+            "vou ter essa condição",
+            "vou ter essa condicao"
+        ],
+        "descricao":
+            "diferença entre predisposição genética e diagnóstico"
     },
 
     "metabolismo": {
         "palavras": [
             "metabolismo",
             "metabólico",
-            "metabolico"
+            "metabolico",
+            "metabólica",
+            "metabolica"
         ],
-        "descricao": "características genéticas relacionadas ao metabolismo"
+        "descricao":
+            "características genéticas relacionadas ao metabolismo"
     }
+}
+
+
+# ============================================================
+# TEMAS QUE PODEM SER COMPLEMENTADOS PELA RESPOSTA
+# ============================================================
+
+TEMAS_COMPLEMENTARES_RESPOSTA = {
+    "diabetes",
+    "cancer",
+    "cardiovascular",
+    "ancestralidade",
+    "alteracoes_dna",
+    "informacoes_dna",
+    "metabolismo"
 }
 
 
@@ -117,7 +218,7 @@ TEMAS_INTERACAO = {
 
 def carregar_dados(caminho_arquivo):
     """
-    Carrega os dados estruturados de um arquivo JSON.
+    Carrega dados estruturados a partir de um arquivo JSON.
     """
 
     caminho = Path(caminho_arquivo)
@@ -127,8 +228,15 @@ def carregar_dados(caminho_arquivo):
             f"Arquivo não encontrado: {caminho}"
         )
 
-    with open(caminho, "r", encoding="utf-8") as arquivo:
-        return json.load(arquivo)
+    with open(
+        caminho,
+        "r",
+        encoding="utf-8"
+    ) as arquivo:
+
+        return json.load(
+            arquivo
+        )
 
 
 def limpar_texto(texto):
@@ -136,72 +244,131 @@ def limpar_texto(texto):
     Normaliza espaços e quebras de linha.
     """
 
-    if not texto:
+    if texto is None:
         return ""
 
-    texto = str(texto)
-    texto = re.sub(r"\s+", " ", texto)
+    texto = str(
+        texto
+    )
+
+    texto = re.sub(
+        r"\s+",
+        " ",
+        texto
+    )
 
     return texto.strip()
 
 
+def normalizar_texto(texto):
+    """
+    Retorna versão normalizada para análise temática.
+    """
+
+    return limpar_texto(
+        texto
+    ).lower()
+
+
 def garantir_lista(valor):
     """
-    Garante que determinado campo seja processado como lista.
+    Garante que um campo possa ser tratado como lista.
     """
 
     if valor is None:
         return []
 
-    if isinstance(valor, list):
+    if isinstance(
+        valor,
+        list
+    ):
         return valor
 
-    return [valor]
+    return [
+        valor
+    ]
 
 
 def formatar_item(item):
     """
-    Converte diferentes tipos de dados em texto legível.
+    Converte diferentes estruturas de dados em texto legível.
     """
 
-    if isinstance(item, dict):
+    if isinstance(
+        item,
+        dict
+    ):
+
         partes = []
 
         for chave, valor in item.items():
-            if valor not in (None, "", [], {}):
-                chave_formatada = chave.replace("_", " ").capitalize()
+
+            if valor not in (
+                None,
+                "",
+                [],
+                {}
+            ):
+
+                chave_formatada = (
+                    chave
+                    .replace("_", " ")
+                    .capitalize()
+                )
+
                 partes.append(
                     f"{chave_formatada}: {valor}"
                 )
 
-        return " | ".join(partes)
+        return " | ".join(
+            partes
+        )
 
-    return limpar_texto(item)
+    return limpar_texto(
+        item
+    )
 
 
-def pluralizar(quantidade, singular, plural=None):
+def pluralizar(
+    quantidade,
+    singular,
+    plural=None
+):
     """
-    Retorna singular ou plural conforme a quantidade.
+    Escolhe singular ou plural de acordo com a quantidade.
     """
 
     if plural is None:
-        plural = singular + "s"
+        plural = (
+            singular + "s"
+        )
 
-    return singular if quantidade == 1 else plural
+    if quantidade == 1:
+        return singular
+
+    return plural
 
 
 # ============================================================
-# RESUMO DO RELATÓRIO
+# RESUMO AUTOMÁTICO DO RELATÓRIO
 # ============================================================
 
 def gerar_resumo_relatorio(dados):
     """
-    Gera uma versão estruturada do resumo
-    do relatório genético.
+    Gera resumo estruturado do relatório genético.
+
+    Somente dados efetivamente presentes no JSON são utilizados.
     """
 
-    paciente = dados.get("paciente", {})
-    sumario = dados.get("sumario", {})
+    paciente = dados.get(
+        "paciente",
+        {}
+    )
+
+    sumario = dados.get(
+        "sumario",
+        {}
+    )
 
     total = sumario.get(
         "total_condicoes_analisadas",
@@ -224,19 +391,27 @@ def gerar_resumo_relatorio(dados):
     )
 
     riscos = garantir_lista(
-        sumario.get("principais_riscos_medico")
+        sumario.get(
+            "principais_riscos_medico"
+        )
     )
 
     recomendacoes = garantir_lista(
-        sumario.get("recomendacoes_prioritarias")
+        sumario.get(
+            "recomendacoes_prioritarias"
+        )
     )
 
     riscos_formatados = []
 
     for risco in riscos:
-        risco_formatado = formatar_item(risco)
+
+        risco_formatado = formatar_item(
+            risco
+        )
 
         if risco_formatado:
+
             riscos_formatados.append(
                 risco_formatado
             )
@@ -244,20 +419,16 @@ def gerar_resumo_relatorio(dados):
     recomendacoes_formatadas = []
 
     for recomendacao in recomendacoes:
+
         recomendacao_formatada = formatar_item(
             recomendacao
         )
 
         if recomendacao_formatada:
+
             recomendacoes_formatadas.append(
                 recomendacao_formatada
             )
-
-    distribuicao = {
-        "alto": alto_risco,
-        "medio": medio_risco,
-        "baixo": baixo_risco
-    }
 
     palavra_condicao = pluralizar(
         total,
@@ -266,20 +437,33 @@ def gerar_resumo_relatorio(dados):
     )
 
     resumo_textual = (
-        f"O relatório analisou {total} {palavra_condicao} genéticas: "
+        f"O relatório analisou {total} "
+        f"{palavra_condicao} genéticas: "
         f"{alto_risco} foram classificadas como alto risco, "
         f"{medio_risco} como médio risco e "
         f"{baixo_risco} como baixo risco."
     )
 
-    resultado = {
-        "id_relatorio": paciente.get(
-            "id_relatorio"
-        ),
+    return {
 
-        "total_condicoes": total,
+        "id_relatorio":
+            paciente.get(
+                "id_relatorio"
+            ),
 
-        "distribuicao_risco": distribuicao,
+        "total_condicoes":
+            total,
+
+        "distribuicao_risco": {
+            "alto":
+                alto_risco,
+
+            "medio":
+                medio_risco,
+
+            "baixo":
+                baixo_risco
+        },
 
         "principais_riscos":
             riscos_formatados,
@@ -291,84 +475,168 @@ def gerar_resumo_relatorio(dados):
             resumo_textual
     }
 
-    return resultado
-
 
 def formatar_resumo_relatorio(resumo):
     """
-    Converte o resumo estruturado em texto.
+    Formata o resumo estruturado do relatório para apresentação.
     """
 
     linhas = [
         "RESUMO AUTOMÁTICO DO RELATÓRIO",
         "",
-        resumo["resumo_textual"]
+        resumo[
+            "resumo_textual"
+        ]
     ]
 
-    if resumo["principais_riscos"]:
+    if resumo[
+        "principais_riscos"
+    ]:
+
         linhas.extend([
             "",
             "PRINCIPAIS RESULTADOS IDENTIFICADOS:"
         ])
 
-        for risco in resumo["principais_riscos"]:
+        for risco in resumo[
+            "principais_riscos"
+        ]:
+
             linhas.append(
                 f"- {risco}"
             )
 
-    if resumo["recomendacoes"]:
+    if resumo[
+        "recomendacoes"
+    ]:
+
         linhas.extend([
             "",
             "RECOMENDAÇÕES PRESENTES NO RELATÓRIO:"
         ])
 
-        for recomendacao in resumo["recomendacoes"]:
+        for recomendacao in resumo[
+            "recomendacoes"
+        ]:
+
             linhas.append(
                 f"- {recomendacao}"
             )
 
-    return "\n".join(linhas)
+    return "\n".join(
+        linhas
+    )
 
 
 # ============================================================
-# NLP DAS INTERAÇÕES
+# IDENTIFICAÇÃO DE TEMAS
 # ============================================================
 
 def identificar_temas(texto):
     """
-    Identifica temas presentes no texto usando
-    um vocabulário controlado.
+    Identifica os temas presentes em determinado texto.
+
+    Cada tema é incluído apenas uma vez.
     """
 
-    texto_normalizado = limpar_texto(
+    texto_normalizado = normalizar_texto(
         texto
-    ).lower()
+    )
 
     temas_encontrados = []
 
-    for nome_tema, configuracao in TEMAS_INTERACAO.items():
+    for nome_tema, configuracao in (
+        TEMAS_INTERACAO.items()
+    ):
 
-        for palavra in configuracao["palavras"]:
+        for palavra in configuracao[
+            "palavras"
+        ]:
 
-            if palavra.lower() in texto_normalizado:
+            if (
+                palavra.lower()
+                in texto_normalizado
+            ):
 
-                if nome_tema not in temas_encontrados:
-                    temas_encontrados.append(
-                        nome_tema
-                    )
+                temas_encontrados.append(
+                    nome_tema
+                )
 
                 break
 
     return temas_encontrados
 
 
+def identificar_temas_interacao(
+    pergunta,
+    resposta
+):
+    """
+    Identifica os temas de uma interação.
+
+    Estratégia:
+
+    1. A pergunta do usuário é a principal fonte para
+       compreender sua intenção.
+
+    2. A resposta do agente pode complementar a análise
+       com temas objetivos, como uma condição ou
+       ancestralidade.
+
+    3. Temas genéricos, como acompanhamento e diagnóstico,
+       não são inferidos apenas porque aparecem em uma
+       resposta padrão do agente.
+
+    Isso evita classificar uma conversa como
+    "acompanhamento profissional" apenas porque o agente
+    incluiu um disclaimer ou orientação genérica.
+    """
+
+    temas_pergunta = identificar_temas(
+        pergunta
+    )
+
+    temas_resposta = identificar_temas(
+        resposta
+    )
+
+    temas_finais = list(
+        temas_pergunta
+    )
+
+    for tema in temas_resposta:
+
+        if (
+            tema
+            in TEMAS_COMPLEMENTARES_RESPOSTA
+            and tema not in temas_finais
+        ):
+
+            temas_finais.append(
+                tema
+            )
+
+    return temas_finais
+
+
+# ============================================================
+# ANÁLISE DO HISTÓRICO
+# ============================================================
+
 def analisar_interacoes(interacoes):
     """
     Analisa perguntas e respostas do histórico.
+
+    Retorna:
+    - interações válidas;
+    - frequência dos temas;
+    - ordem dos temas.
     """
 
     interacoes_validas = []
+
     ordem_temas = []
+
     frequencia_temas = {}
 
     for interacao in interacoes:
@@ -387,44 +655,60 @@ def analisar_interacoes(interacoes):
             )
         )
 
-        if not pergunta and not resposta:
+        if (
+            not pergunta
+            and not resposta
+        ):
             continue
 
-        texto_completo = (
-            f"{pergunta} {resposta}"
-        )
-
-        temas = identificar_temas(
-            texto_completo
+        temas = identificar_temas_interacao(
+            pergunta,
+            resposta
         )
 
         for tema in temas:
 
-            frequencia_temas[tema] = (
+            frequencia_temas[
+                tema
+            ] = (
                 frequencia_temas.get(
                     tema,
                     0
-                ) + 1
+                )
+                + 1
             )
 
-            if tema not in ordem_temas:
+            if (
+                tema
+                not in ordem_temas
+            ):
+
                 ordem_temas.append(
                     tema
                 )
 
         interacoes_validas.append({
-            "pergunta": pergunta,
-            "resposta": resposta,
-            "temas": temas
+
+            "pergunta":
+                pergunta,
+
+            "resposta":
+                resposta,
+
+            "temas":
+                temas
         })
 
     temas_ordenados = sorted(
         ordem_temas,
+
         key=lambda tema: (
+
             -frequencia_temas.get(
                 tema,
                 0
             ),
+
             ordem_temas.index(
                 tema
             )
@@ -432,6 +716,7 @@ def analisar_interacoes(interacoes):
     )
 
     return {
+
         "interacoes":
             interacoes_validas,
 
@@ -443,31 +728,50 @@ def analisar_interacoes(interacoes):
     }
 
 
+# ============================================================
+# SÍNTESE DOS TEMAS
+# ============================================================
+
 def gerar_sintese_temas(temas):
     """
-    Transforma os temas encontrados em uma
-    frase de resumo em linguagem natural.
+    Converte os temas identificados em uma frase
+    natural e acessível.
     """
 
     descricoes = [
-        TEMAS_INTERACAO[tema]["descricao"]
+
+        TEMAS_INTERACAO[
+            tema
+        ][
+            "descricao"
+        ]
+
         for tema in temas
-        if tema in TEMAS_INTERACAO
+
+        if tema
+        in TEMAS_INTERACAO
     ]
 
     if not descricoes:
+
         return (
             "As interações abordaram dúvidas "
             "relacionadas ao conteúdo do relatório genético."
         )
 
-    if len(descricoes) == 1:
+    if len(
+        descricoes
+    ) == 1:
+
         return (
-            f"O principal tema abordado foi "
+            "O principal tema abordado foi "
             f"{descricoes[0]}."
         )
 
-    if len(descricoes) == 2:
+    if len(
+        descricoes
+    ) == 2:
+
         return (
             "Os principais temas abordados foram "
             f"{descricoes[0]} e "
@@ -485,20 +789,39 @@ def gerar_sintese_temas(temas):
     )
 
 
+# ============================================================
+# RESUMO DAS INTERAÇÕES
+# ============================================================
+
 def gerar_resumo_interacoes(interacoes):
     """
-    Gera resumo semântico do histórico
-    de interações.
+    Gera resumo semântico do histórico de interações.
+
+    A saída estruturada pode ser consumida pelo
+    front-end ou dashboard.
     """
 
     if not interacoes:
+
         return {
-            "total_interacoes": 0,
-            "temas": [],
-            "frequencia_temas": {},
-            "ultima_duvida": None,
+
+            "total_interacoes":
+                0,
+
+            "temas":
+                [],
+
+            "frequencia_temas":
+                {},
+
+            "ultima_duvida":
+                None,
+
             "resumo_textual":
-                "Ainda não existem interações para resumir."
+                (
+                    "Ainda não existem "
+                    "interações para resumir."
+                )
         }
 
     analise = analisar_interacoes(
@@ -514,22 +837,39 @@ def gerar_resumo_interacoes(interacoes):
     ]
 
     if not interacoes_validas:
+
         return {
-            "total_interacoes": 0,
-            "temas": [],
-            "frequencia_temas": {},
-            "ultima_duvida": None,
+
+            "total_interacoes":
+                0,
+
+            "temas":
+                [],
+
+            "frequencia_temas":
+                {},
+
+            "ultima_duvida":
+                None,
+
             "resumo_textual":
-                "Não foram encontradas interações válidas."
+                (
+                    "Não foram encontradas "
+                    "interações válidas."
+                )
         }
 
     total = len(
         interacoes_validas
     )
 
-    ultima_duvida = interacoes_validas[
-        -1
-    ]["pergunta"]
+    ultima_duvida = (
+        interacoes_validas[
+            -1
+        ][
+            "pergunta"
+        ]
+    )
 
     sintese_temas = gerar_sintese_temas(
         temas
@@ -549,23 +889,34 @@ def gerar_resumo_interacoes(interacoes):
 
     resumo_textual = (
         f"O histórico possui {total} "
-        f"{palavra_interacao} {palavra_valida}. "
+        f"{palavra_interacao} "
+        f"{palavra_valida}. "
         f"{sintese_temas}"
     )
 
     if ultima_duvida:
+
         resumo_textual += (
             " A dúvida mais recente do usuário foi: "
             f"\"{ultima_duvida}\""
         )
 
     descricoes_temas = [
-        TEMAS_INTERACAO[tema]["descricao"]
+
+        TEMAS_INTERACAO[
+            tema
+        ][
+            "descricao"
+        ]
+
         for tema in temas
-        if tema in TEMAS_INTERACAO
+
+        if tema
+        in TEMAS_INTERACAO
     ]
 
     return {
+
         "total_interacoes":
             total,
 
@@ -585,13 +936,16 @@ def gerar_resumo_interacoes(interacoes):
     }
 
 
+# ============================================================
+# ATUALIZAÇÃO DO RESUMO
+# ============================================================
+
 def atualizar_resumo_interacoes(
     interacoes,
     nova_interacao
 ):
     """
-    Atualiza automaticamente o resumo após
-    receber uma nova interação.
+    Atualiza o resumo após receber uma nova interação.
 
     A lista original não é modificada.
     """
@@ -609,30 +963,46 @@ def atualizar_resumo_interacoes(
     )
 
 
+# ============================================================
+# FORMATAÇÃO
+# ============================================================
+
 def formatar_resumo_interacoes(resumo):
     """
-    Formata o resumo das interações
-    para visualização.
+    Formata o resumo das interações para apresentação.
     """
 
     linhas = [
+
         "RESUMO AUTOMÁTICO DAS INTERAÇÕES",
+
         "",
-        resumo["resumo_textual"]
+
+        resumo[
+            "resumo_textual"
+        ]
     ]
 
-    if resumo["temas"]:
+    if resumo[
+        "temas"
+    ]:
+
         linhas.extend([
             "",
             "TEMAS IDENTIFICADOS:"
         ])
 
-        for tema in resumo["temas"]:
+        for tema in resumo[
+            "temas"
+        ]:
+
             linhas.append(
                 f"- {tema}"
             )
 
-    return "\n".join(linhas)
+    return "\n".join(
+        linhas
+    )
 
 
 # ============================================================
@@ -641,22 +1011,26 @@ def formatar_resumo_interacoes(resumo):
 
 if __name__ == "__main__":
 
-    raiz_projeto = Path(
-        __file__
-    ).resolve().parents[2]
+    raiz_projeto = (
+        Path(
+            __file__
+        )
+        .resolve()
+        .parents[2]
+    )
 
     caminho_json = (
-        raiz_projeto /
-        "dados_estruturados.json"
+        raiz_projeto
+        / "dados_estruturados.json"
     )
 
     dados = carregar_dados(
         caminho_json
     )
 
-    # --------------------------------------------------------
-    # TESTE 1 - RESUMO DO RELATÓRIO
-    # --------------------------------------------------------
+    # ========================================================
+    # TESTE 1 — RESUMO DO RELATÓRIO
+    # ========================================================
 
     print(
         "\n" + "=" * 70
@@ -680,33 +1054,58 @@ if __name__ == "__main__":
         )
     )
 
-    # --------------------------------------------------------
-    # HISTÓRICO SIMULADO
-    # --------------------------------------------------------
+    # ========================================================
+    # HISTÓRICO DE TESTE
+    # ========================================================
 
     interacoes_teste = [
+
         {
             "pergunta":
-                "O que meu relatório diz sobre diabetes?",
+                (
+                    "Meu relatório indica uma "
+                    "chance maior de desenvolver diabetes?"
+                ),
 
             "resposta":
-                "O relatório indica uma predisposição genética "
-                "relacionada ao diabetes."
+                (
+                    "O resultado mostra uma relação genética "
+                    "com diabetes, mas não é um diagnóstico."
+                )
         },
 
         {
             "pergunta":
-                "O que significa risco alto?",
+                (
+                    "O que significa essa "
+                    "alteração no DNA?"
+                ),
 
             "resposta":
-                "Risco alto indica uma associação genética "
-                "mais relevante, mas não representa diagnóstico."
+                (
+                    "Uma alteração no DNA é uma característica "
+                    "genética identificada durante a análise."
+                )
+        },
+
+        {
+            "pergunta":
+                (
+                    "Preciso procurar um médico "
+                    "por causa desse resultado?"
+                ),
+
+            "resposta":
+                (
+                    "O acompanhamento profissional pode ajudar "
+                    "na interpretação do resultado."
+                )
         }
     ]
 
-    # --------------------------------------------------------
-    # TESTE 2 - RESUMO DAS INTERAÇÕES
-    # --------------------------------------------------------
+    # ========================================================
+    # TESTE 2 — RESUMO DAS INTERAÇÕES
+    # ========================================================
 
     print(
         "\n" + "=" * 70
@@ -730,17 +1129,23 @@ if __name__ == "__main__":
         )
     )
 
-    # --------------------------------------------------------
-    # TESTE 3 - ATUALIZAÇÃO DO RESUMO
-    # --------------------------------------------------------
+    # ========================================================
+    # TESTE 3 — DETECÇÃO DE ANCESTRALIDADE
+    # ========================================================
 
-    nova_interacao = {
+    interacao_ancestralidade = {
+
         "pergunta":
-            "Preciso procurar um médico?",
+            (
+                "O que meu relatório diz "
+                "sobre ancestralidade?"
+            ),
 
         "resposta":
-            "O relatório recomenda acompanhamento profissional "
-            "para interpretação adequada dos resultados."
+            (
+                "O relatório mostra predominância "
+                "de ancestralidade europeia."
+            )
     }
 
     print(
@@ -748,7 +1153,50 @@ if __name__ == "__main__":
     )
 
     print(
-        "TESTE 3 - ATUALIZAÇÃO DO RESUMO"
+        "TESTE 3 - IDENTIFICAÇÃO DE ANCESTRALIDADE"
+    )
+
+    print(
+        "=" * 70
+    )
+
+    resumo_ancestralidade = gerar_resumo_interacoes(
+        [
+            interacao_ancestralidade
+        ]
+    )
+
+    print(
+        formatar_resumo_interacoes(
+            resumo_ancestralidade
+        )
+    )
+
+    # ========================================================
+    # TESTE 4 — ATUALIZAÇÃO AUTOMÁTICA
+    # ========================================================
+
+    nova_interacao = {
+
+        "pergunta":
+            (
+                "Isso significa que "
+                "eu tenho a doença?"
+            ),
+
+        "resposta":
+            (
+                "Não. Uma chance genética maior "
+                "não equivale a um diagnóstico."
+            )
+    }
+
+    print(
+        "\n" + "=" * 70
+    )
+
+    print(
+        "TESTE 4 - ATUALIZAÇÃO AUTOMÁTICA DO RESUMO"
     )
 
     print(
