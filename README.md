@@ -523,6 +523,83 @@ Exibidos em toda sessão, sem exceção:
 
 ---
 
+## 13. Sprint 3 — Personalização do RAG
+
+> **Cientista de IA — Personalização & RAG** · `sprint3/rag_personalizacao/`
+
+Camada que adapta as respostas ao **perfil** e ao **histórico** do usuário sem
+permitir que o agente extrapole o conteúdo verificável do relatório genético.
+Envolve o pipeline da Sprint 2 — **nenhum arquivo de `sprint2/` foi alterado**.
+
+### Princípio
+
+A personalização atua sobre a **forma** da resposta (tom, profundidade,
+vocabulário, `top_k`), nunca sobre o **conteúdo** (fatos, números, marcadores,
+nível de risco, veredito dos guardrails).
+
+### Perfis
+
+| Perfil | `modo` no agente | `top_k` | Direção |
+|---|---|---|---|
+| `leigo_ansioso` | `paciente` | 3 | Tom calmo, risco como tendência estatística, sem alarmismo |
+| `leigo_curioso` | `paciente` | 4 | Linguagem simples + mecanismo biológico |
+| `medico` | `tecnico` | 5 | Marcadores e escores como constam no relatório |
+
+### Fluxo
+
+```
+pergunta + perfil + usuario_id
+   ↓ guardrails sobre a pergunta CRUA        (bloqueio não gasta token)
+   ↓ busca semântica com top_k do perfil     sprint2/vetorial/buscar.py
+   ↓ pergunta personalizada (forma + continuidade)
+   ↓ responder_com_llm()                     sprint2/interface/llm_connector.py
+   ↓   ← sempre o caminho real GPT-4.1 Mini, nunca a resposta simulada
+   ↓ validação de ancoragem no relatório
+   ↓ registro no histórico
+contrato estável v1.0
+```
+
+### Fidelidade ao relatório
+
+Toda resposta passa por validação programática: números, percentuais, SNPs e
+símbolos de gene presentes na resposta precisam aparecer nos trechos
+recuperados. Política configurável — `sinalizar` (padrão, marca
+`ancoragem.ancorado = False`) ou `bloquear` (substitui por mensagem segura).
+
+### Uso
+
+```python
+from sprint3.rag_personalizacao import responder_personalizado
+
+resultado = responder_personalizado(
+    pergunta="Eu tenho risco de diabetes?",
+    perfil="leigo_ansioso",
+    usuario_id="paciente-001",
+    api_key=OPENAI_API_KEY,
+)
+```
+
+```bash
+pytest sprint3/rag_personalizacao/ -v    # 32 testes, sem API key
+```
+
+### Histórico — ponto de troca
+
+A persistência real (Integrante 1) ainda não existe. A camada usa
+`HistoricoMemoria` / `HistoricoJSON` por trás da interface
+`RepositorioHistorico`; quando a persistência real chegar, basta injetá-la —
+nenhum arquivo da personalização muda.
+
+### Relação com `sprint3/nlp/`
+
+`sprint3/nlp/` é uma **integração paralela, ainda não coordenada** — não é
+dependência desta camada, e o contrato acima não usa nenhuma chave daquele
+módulo. Dois pontos em aberto estão documentados em
+[`sprint3/rag_personalizacao/README_rag_personalizacao.md`](sprint3/rag_personalizacao/README_rag_personalizacao.md),
+seção 7.
+
+---
+
 <p align="center">
   <sub>Projeto desenvolvido para a disciplina de Inteligência Artificial · FIAP 2026</sub><br/>
   <sub>Genera AI · Dasa · Grupo Sprint 2</sub>
