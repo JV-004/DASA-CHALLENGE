@@ -1020,3 +1020,705 @@ if st.session_state.dados is None:
             "O arquivo dados_estruturados.json não foi encontrado na raiz "
             "do projeto."
         )
+# -----------------------------------------------------------------------------
+# Sidebar / navegação
+# -----------------------------------------------------------------------------
+
+with st.sidebar:
+    st.markdown(
+        """
+        <div class="brand">
+            <div class="brand-mark">🧬</div>
+            <div>
+                <h2>Genera AI</h2>
+                <p>Seu DNA explicado com clareza</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    paginas = [
+        "Visão geral",
+        "Meus resultados",
+        "Assistente",
+        "Histórico",
+    ]
+
+    pagina_escolhida = st.radio(
+        "Navegação",
+        paginas,
+        index=paginas.index(st.session_state.pagina)
+        if st.session_state.pagina in paginas
+        else 0,
+        label_visibility="collapsed",
+    )
+
+    st.session_state.pagina = pagina_escolhida
+
+    st.markdown("---")
+
+    st.caption("Relatório")
+
+    upload = st.file_uploader(
+        "Enviar outro relatório",
+        type=["json"],
+        accept_multiple_files=False,
+        help="Envie um relatório estruturado em JSON.",
+    )
+
+    if upload is not None:
+        try:
+            conteudo = upload.getvalue()
+            caminho_upload = salvar_upload(upload.name, conteudo)
+
+            dados_upload = carregar_json(caminho_upload)
+
+            st.session_state.dados = dados_upload
+            st.session_state.arquivo_relatorio = str(caminho_upload)
+            st.session_state.resumo_relatorio = None
+            st.session_state.messages = []
+            st.session_state.assistente_preparado = False
+            st.session_state.erro_relatorio = None
+
+            st.success("Relatório carregado.")
+        except Exception as erro:
+            st.session_state.erro_relatorio = str(erro)
+            st.error(f"Não foi possível carregar o relatório: {erro}")
+
+    if st.session_state.arquivo_relatorio:
+        st.caption(
+            f"Arquivo ativo: {Path(st.session_state.arquivo_relatorio).name}"
+        )
+
+    st.markdown("---")
+
+    st.caption("Assistente")
+
+    chave_atual = os.getenv("OPENAI_API_KEY", "")
+
+    chave_digitada = st.text_input(
+        "OpenAI API Key",
+        value="",
+        type="password",
+        placeholder="sk-...",
+        help=(
+            "A chave é utilizada apenas durante esta sessão. "
+            "Não publique a chave no GitHub."
+        ),
+    )
+
+    if chave_digitada.strip():
+        os.environ["OPENAI_API_KEY"] = chave_digitada.strip()
+        chave_atual = chave_digitada.strip()
+
+    st.session_state.modo_resposta = st.selectbox(
+        "Modo de resposta",
+        ["Paciente", "Técnico"],
+        index=0
+        if st.session_state.modo_resposta == "Paciente"
+        else 1,
+        help=(
+            "Paciente prioriza linguagem acessível. "
+            "Técnico preserva uma explicação mais detalhada."
+        ),
+    )
+
+    preparar = st.button(
+        "Preparar assistente",
+        use_container_width=True,
+    )
+
+    if preparar:
+        if not st.session_state.arquivo_relatorio:
+            st.warning("Carregue um relatório antes de preparar o assistente.")
+        else:
+            try:
+                with st.spinner("Preparando busca semântica..."):
+                    pipeline_script = (
+                        RAIZ
+                        / "sprint2"
+                        / "pipeline"
+                        / "pipeline_ingestao.py"
+                    )
+
+                    if pipeline_script.exists():
+                        resultado = subprocess.run(
+                            [
+                                sys.executable,
+                                str(pipeline_script),
+                                st.session_state.arquivo_relatorio,
+                            ],
+                            cwd=str(RAIZ),
+                            capture_output=True,
+                            text=True,
+                            timeout=240,
+                        )
+
+                        if resultado.returncode != 0:
+                            detalhe = (
+                                resultado.stderr.strip()
+                                or resultado.stdout.strip()
+                            )
+
+                            raise RuntimeError(
+                                detalhe
+                                or "O pipeline de ingestão retornou erro."
+                            )
+
+                        st.session_state.assistente_preparado = True
+                        st.success("Assistente preparado.")
+                    else:
+                        st.warning(
+                            "O pipeline da Sprint 2 não foi encontrado. "
+                            "O chat poderá depender da base já existente."
+                        )
+                        st.session_state.assistente_preparado = True
+
+            except subprocess.TimeoutExpired:
+                st.error(
+                    "A preparação demorou mais que o esperado. "
+                    "Tente novamente."
+                )
+
+            except Exception as erro:
+                st.error(
+                    "Não foi possível preparar o assistente. "
+                    f"Detalhes: {erro}"
+                )
+
+    status_assistente = (
+        "Pronto"
+        if st.session_state.assistente_preparado
+        else "Aguardando preparação"
+    )
+
+    st.caption(f"Status: {status_assistente}")
+
+    st.markdown(
+        """
+        <div class="privacy-note">
+            O dashboard não exibe CPF ou outros identificadores
+            desnecessários. O histórico apresentado nesta versão
+            permanece somente na sessão atual do Streamlit.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Validação global dos dados
+# -----------------------------------------------------------------------------
+
+if st.session_state.erro_relatorio:
+    cabecalho_pagina(
+        "Genera AI",
+        "Não foi possível abrir o relatório",
+        (
+            "Verifique o arquivo informado ou carregue outro relatório "
+            "pela barra lateral."
+        ),
+    )
+
+    st.error(st.session_state.erro_relatorio)
+
+    st.stop()
+
+if not isinstance(st.session_state.dados, dict):
+    cabecalho_pagina(
+        "Genera AI",
+        "Nenhum relatório carregado",
+        "Envie um arquivo JSON pela barra lateral para começar.",
+    )
+
+    tela_vazia(
+        "📄",
+        "Relatório necessário",
+        "Carregue um relatório estruturado para visualizar o dashboard.",
+    )
+
+    st.stop()
+
+
+dados = st.session_state.dados
+resultados = obter_resultados(dados)
+ancestralidade = obter_ancestralidade(dados)
+nome_paciente = obter_nome_paciente(dados)
+riscos = contagem_riscos(resultados)
+
+
+# -----------------------------------------------------------------------------
+# Resumo automático do relatório
+# -----------------------------------------------------------------------------
+
+def obter_resumo_automatico() -> Any:
+    """
+    Gera o resumo apenas uma vez por relatório durante a sessão.
+    """
+    if st.session_state.resumo_relatorio is not None:
+        return st.session_state.resumo_relatorio
+
+    if gerar_resumo_relatorio is None:
+        return None
+
+    try:
+        resumo = gerar_resumo_relatorio(dados)
+        st.session_state.resumo_relatorio = resumo
+        return resumo
+    except Exception:
+        return None
+
+
+def texto_resumo(resumo: Any) -> str:
+    """
+    Tenta transformar diferentes formatos de resumo em texto legível.
+    """
+    if resumo is None:
+        return ""
+
+    if isinstance(resumo, str):
+        return resumo
+
+    if isinstance(resumo, dict):
+        for chave in (
+            "resumo",
+            "texto",
+            "resumo_geral",
+            "sumario",
+            "summary",
+        ):
+            valor = resumo.get(chave)
+
+            if isinstance(valor, str) and valor.strip():
+                return valor.strip()
+
+        partes = []
+
+        for chave, valor in resumo.items():
+            if isinstance(valor, (str, int, float)):
+                partes.append(
+                    f"{str(chave).replace('_', ' ').title()}: {valor}"
+                )
+
+        return "\n".join(partes)
+
+    return str(resumo)
+
+
+# -----------------------------------------------------------------------------
+# Página: Visão geral
+# -----------------------------------------------------------------------------
+
+if st.session_state.pagina == "Visão geral":
+    cabecalho_pagina(
+        "Visão geral",
+        f"Olá, {nome_paciente} 👋",
+        (
+            "Veja os principais pontos do seu relatório genético "
+            "em uma experiência organizada e acessível."
+        ),
+    )
+
+    disclaimer()
+
+    total_resultados = len(resultados)
+    total_ancestralidade = len(ancestralidade)
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        card_metrica(
+            "Resultados analisados",
+            total_resultados,
+            "Condições e características presentes no relatório.",
+        )
+
+    with col2:
+        card_metrica(
+            "Maior atenção",
+            riscos.get("alto", 0),
+            "Resultados que merecem uma leitura mais cuidadosa.",
+        )
+
+    with col3:
+        card_metrica(
+            "Atenção moderada",
+            riscos.get("medio", 0),
+            "Predisposições intermediárias no relatório.",
+        )
+
+    with col4:
+        card_metrica(
+            "Ancestralidade",
+            total_ancestralidade,
+            "Regiões ou populações identificadas.",
+        )
+
+    titulo_secao(
+        "Principais resultados",
+        "Visão resumida do relatório",
+    )
+
+    if resultados:
+        resultados_priorizados = sorted(
+            resultados,
+            key=lambda item: {
+                "alto": 0,
+                "medio": 1,
+                "baixo": 2,
+                "indefinido": 3,
+            }.get(
+                obter_risco_resultado(item),
+                4,
+            ),
+        )
+
+        exibidos = resultados_priorizados[:6]
+
+        for inicio in range(0, len(exibidos), 3):
+            linha = exibidos[inicio : inicio + 3]
+            colunas = st.columns(len(linha))
+
+            for coluna, resultado in zip(colunas, linha):
+                with coluna:
+                    card_resultado(resultado)
+
+        if len(resultados) > 6:
+            st.caption(
+                f"Mostrando 6 de {len(resultados)} resultados. "
+                "Acesse 'Meus resultados' para ver todos."
+            )
+
+    else:
+        tela_vazia(
+            "🧬",
+            "Nenhum resultado encontrado",
+            (
+                "O relatório carregado não possui uma lista de "
+                "resultados genéticos reconhecida."
+            ),
+        )
+
+    esquerda, direita = st.columns([1.1, 0.9])
+
+    with esquerda:
+        titulo_secao(
+            "Sua ancestralidade",
+            "Composição identificada no relatório",
+        )
+
+        st.markdown(
+            '<div class="content-card">',
+            unsafe_allow_html=True,
+        )
+
+        if ancestralidade:
+            ancestralidade_ordenada = sorted(
+                ancestralidade,
+                key=lambda item: dados_regiao_ancestralidade(item)[1],
+                reverse=True,
+            )
+
+            for item in ancestralidade_ordenada[:8]:
+                regiao, percentual = dados_regiao_ancestralidade(item)
+
+                barra_ancestralidade(
+                    regiao,
+                    percentual,
+                )
+
+            if len(ancestralidade) > 8:
+                st.caption(
+                    f"+ {len(ancestralidade) - 8} regiões no relatório."
+                )
+        else:
+            st.info(
+                "O relatório não contém informações de ancestralidade "
+                "em um formato reconhecido."
+            )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    with direita:
+        titulo_secao(
+            "Resumo automático",
+            "Leitura rápida",
+        )
+
+        resumo = obter_resumo_automatico()
+        texto = texto_resumo(resumo)
+
+        if texto:
+            st.markdown(
+                f"""
+                <div class="summary-card">
+                    <div class="summary-lead">
+                        {escapar(texto)}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"""
+                <div class="summary-card">
+                    <div class="summary-lead">
+                        Seu relatório reúne
+                        <strong>{total_resultados}</strong>
+                        resultados genéticos.
+                    </div>
+
+                    <ul class="mini-list">
+                        <li>
+                            {riscos.get("alto", 0)}
+                            resultado(s) classificados para maior atenção.
+                        </li>
+                        <li>
+                            {riscos.get("medio", 0)}
+                            resultado(s) de atenção moderada.
+                        </li>
+                        <li>
+                            {riscos.get("baixo", 0)}
+                            resultado(s) de menor atenção.
+                        </li>
+                        <li>
+                            {total_ancestralidade}
+                            região(ões) de ancestralidade identificada(s).
+                        </li>
+                    </ul>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    titulo_secao(
+        "Pergunte sobre seu DNA",
+        "Assistente com contexto do relatório",
+    )
+
+    st.markdown(
+        """
+        <div class="content-card">
+            <p style="margin-top: 0; color: #465269; line-height: 1.6;">
+                Use o assistente para entender termos técnicos,
+                predisposições, características e informações de
+                ancestralidade com base no seu próprio relatório.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col_a, col_b, col_c = st.columns(3)
+
+    with col_a:
+        if st.button(
+            "O que merece mais atenção?",
+            use_container_width=True,
+        ):
+            st.session_state.pagina = "Assistente"
+            st.session_state.pergunta_sugerida = (
+                "Quais resultados do meu relatório merecem mais atenção?"
+            )
+            st.rerun()
+
+    with col_b:
+        if st.button(
+            "Explique meus resultados",
+            use_container_width=True,
+        ):
+            st.session_state.pagina = "Assistente"
+            st.session_state.pergunta_sugerida = (
+                "Explique os principais resultados do meu relatório "
+                "em linguagem simples."
+            )
+            st.rerun()
+
+    with col_c:
+        if st.button(
+            "Entender ancestralidade",
+            use_container_width=True,
+        ):
+            st.session_state.pagina = "Assistente"
+            st.session_state.pergunta_sugerida = (
+                "O que os dados de ancestralidade do meu relatório significam?"
+            )
+            st.rerun()
+
+
+# -----------------------------------------------------------------------------
+# Página: Meus resultados
+# -----------------------------------------------------------------------------
+
+elif st.session_state.pagina == "Meus resultados":
+    cabecalho_pagina(
+        "Meu DNA",
+        "Seus resultados genéticos",
+        (
+            "Consulte cada resultado individualmente e compare "
+            "a explicação simples com os detalhes técnicos."
+        ),
+    )
+
+    disclaimer()
+
+    if not resultados:
+        tela_vazia(
+            "🧬",
+            "Nenhum resultado disponível",
+            "O relatório atual não possui resultados reconhecidos.",
+        )
+
+    else:
+        col_filtro, col_busca = st.columns([0.35, 0.65])
+
+        with col_filtro:
+            filtro_risco = st.selectbox(
+                "Filtrar por atenção",
+                [
+                    "Todos",
+                    "Maior atenção",
+                    "Atenção moderada",
+                    "Menor atenção",
+                ],
+            )
+
+        with col_busca:
+            busca = st.text_input(
+                "Buscar resultado",
+                placeholder="Ex.: diabetes, cafeína, metabolismo...",
+            )
+
+        mapa_filtro = {
+            "Maior atenção": "alto",
+            "Atenção moderada": "medio",
+            "Menor atenção": "baixo",
+        }
+
+        resultados_filtrados = []
+
+        for resultado in resultados:
+            risco = obter_risco_resultado(resultado)
+            nome = nome_resultado(resultado)
+            categoria = categoria_resultado(resultado)
+
+            if filtro_risco != "Todos":
+                if risco != mapa_filtro.get(filtro_risco):
+                    continue
+
+            termo = busca.strip().lower()
+
+            if termo:
+                conteudo_busca = (
+                    f"{nome} {categoria} {descricao_resultado(resultado)}"
+                ).lower()
+
+                if termo not in conteudo_busca:
+                    continue
+
+            resultados_filtrados.append(resultado)
+
+        st.caption(
+            f"{len(resultados_filtrados)} resultado(s) encontrado(s)."
+        )
+
+        for resultado in resultados_filtrados:
+            risco = obter_risco_resultado(resultado)
+
+            with st.expander(
+                f"{nome_resultado(resultado)} · {rotulo_risco(risco)}"
+            ):
+                col_esq, col_dir = st.columns([0.58, 0.42])
+
+                with col_esq:
+                    st.markdown("#### Explicação acessível")
+                    st.write(descricao_resultado(resultado))
+
+                    recomendacao = recomendacao_resultado(resultado)
+
+                    if recomendacao:
+                        st.markdown("#### Orientação")
+                        st.write(recomendacao)
+
+                with col_dir:
+                    st.markdown("#### Detalhes do relatório")
+
+                    campos_tecnicos = [
+                        ("Categoria", resultado.get("categoria")),
+                        ("Risco original", resultado.get("risco")),
+                        (
+                            "Impacto prático",
+                            resultado.get("impacto_pratico"),
+                        ),
+                        (
+                            "Urgência médica",
+                            resultado.get("urgencia_medica"),
+                        ),
+                    ]
+
+                    for rotulo, valor in campos_tecnicos:
+                        if valor not in (None, "", [], {}):
+                            st.markdown(
+                                f"**{rotulo}:** {valor}"
+                            )
+
+                    descricao_tecnica = resultado.get(
+                        "descricao_tecnica"
+                    )
+
+                    if descricao_tecnica:
+                        st.markdown("**Descrição técnica:**")
+                        st.write(descricao_tecnica)
+
+    titulo_secao(
+        "Ancestralidade completa",
+        f"{len(ancestralidade)} região(ões)",
+    )
+
+    if ancestralidade:
+        st.markdown(
+            '<div class="content-card">',
+            unsafe_allow_html=True,
+        )
+
+        for item in sorted(
+            ancestralidade,
+            key=lambda item: dados_regiao_ancestralidade(item)[1],
+            reverse=True,
+        ):
+            regiao, percentual = dados_regiao_ancestralidade(item)
+
+            barra_ancestralidade(
+                regiao,
+                percentual,
+            )
+
+            intervalo = obter_primeiro(
+                item,
+                "intervalo_confianca_95",
+                "intervalo_confianca",
+                "confidence_interval",
+                padrao=None,
+            )
+
+            if intervalo:
+                st.caption(
+                    f"Intervalo de confiança informado: {intervalo}"
+                )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    else:
+        tela_vazia(
+            "🌎",
+            "Ancestralidade não disponível",
+            "O relatório atual não apresenta essa seção.",
+        )
