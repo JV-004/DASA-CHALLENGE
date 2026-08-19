@@ -932,75 +932,44 @@ def card_resultado(resultado: dict[str, Any]) -> None:
     descricao = descricao_resultado(resultado)
     recomendacao = recomendacao_resultado(resultado)
 
-    st.markdown(
-        f"""
-        <div class="result-card">
-            <div class="result-top">
-                <div>
-                    <h4>{escapar(nome)}</h4>
-                    <div class="result-category">
-                        {escapar(categoria)}
-                    </div>
-                </div>
-
-                <span class="risk-pill {classe_risco(risco)}">
-                    {escapar(rotulo_risco(risco))}
-                </span>
-            </div>
-
-            <div class="result-description">
-                {escapar(descricao)}
-            </div>
-
-            <div class="result-note">
-                <strong>Orientação:</strong>
-                {escapar(recomendacao)}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    html_card = (
+        f'<div class="result-card">'
+        f'<div class="result-top">'
+        f'<div>'
+        f'<h4>{escapar(nome)}</h4>'
+        f'<div class="result-category">{escapar(categoria)}</div>'
+        f'</div>'
+        f'<span class="risk-pill {classe_risco(risco)}">'
+        f'{escapar(rotulo_risco(risco))}'
+        f'</span>'
+        f'</div>'
+        f'<div class="result-description">{escapar(descricao)}</div>'
+        f'<div class="result-note">'
+        f'<strong>Orientação:</strong> {escapar(recomendacao)}'
+        f'</div>'
+        f'</div>'
     )
+
+    st.html(html_card)
 
 
 def barra_ancestralidade(
     regiao: str,
     percentual: float,
 ) -> None:
-    st.markdown(
-        f"""
-        <div class="ancestry-row">
-            <div class="ancestry-meta">
-                <span class="ancestry-region">{escapar(regiao)}</span>
-                <span class="ancestry-value">{percentual:.1f}%</span>
-            </div>
-
-            <div class="ancestry-track">
-                <div
-                    class="ancestry-fill"
-                    style="width: {percentual:.2f}%;">
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    html_barra = (
+        f'<div class="ancestry-row">'
+        f'<div class="ancestry-meta">'
+        f'<span class="ancestry-region">{escapar(regiao)}</span>'
+        f'<span class="ancestry-value">{percentual:.1f}%</span>'
+        f'</div>'
+        f'<div class="ancestry-track">'
+        f'<div class="ancestry-fill" style="width: {percentual:.2f}%;"></div>'
+        f'</div>'
+        f'</div>'
     )
 
-
-def tela_vazia(
-    icone: str,
-    titulo: str,
-    texto: str,
-) -> None:
-    st.markdown(
-        f"""
-        <div class="empty-card">
-            <div class="icon">{escapar(icone)}</div>
-            <strong>{escapar(titulo)}</strong>
-            <p>{escapar(texto)}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.html(html_barra)
 
 
 # -----------------------------------------------------------------------------
