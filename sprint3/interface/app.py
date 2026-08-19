@@ -1139,7 +1139,7 @@ with st.sidebar:
                         RAIZ
                         / "sprint2"
                         / "pipeline"
-                        / "pipeline_ingestao.py"
+                        / "pipeline_completo.py"
                     )
 
                     if pipeline_script.exists():
@@ -1722,3 +1722,835 @@ elif st.session_state.pagina == "Meus resultados":
             "Ancestralidade não disponível",
             "O relatório atual não apresenta essa seção.",
         )
+# -----------------------------------------------------------------------------
+# Integração com RAG + LLM + NLP
+# -----------------------------------------------------------------------------
+
+def buscar_contexto_seguro(pergunta: str) -> dict[str, Any]:
+    """
+    Executa a busca semântica da Sprint 2.
+
+    Retorna:
+    {
+        "pergunta": "...",
+        "encontrou_contexto": True,
+        "trechos": [...],
+        "contexto": "..."
+    }
+    """
+    try:
+        from sprint2.vetorial.buscar import buscar_contexto
+
+        return buscar_contexto(
+            pergunta,
+            top_k=3,
+            similaridade_minima=0.50,
+        )
+
+    except FileNotFoundError as erro:
+        raise FileNotFoundError(
+            "A base vetorial ainda não foi criada."
+        ) from erro
+
+    except Exception as erro:
+        raise RuntimeError(
+            f"Erro na busca semântica: {erro}"
+        ) from erro
+
+
+def obter_api_key() -> str | None:
+    """
+    Obtém a chave já configurada na variável de ambiente.
+
+    A chave pode ter vindo do .env ou do campo da sidebar.
+    """
+    chave = os.getenv(
+        "OPENAI_API_KEY",
+        "",
+    ).strip()
+
+    return chave or None
+
+
+def modo_llm() -> str:
+    """
+    Converte o rótulo visual usado na Sprint 3 para
+    o formato esperado pelo agente da Sprint 2.
+    """
+    if st.session_state.modo_resposta == "Técnico":
+        return "tecnico"
+
+    return "paciente"
+
+
+def aplicar_nlp_resposta(
+    texto: str,
+    modo: str,
+) -> tuple[str, dict[str, Any]]:
+    """
+    Aplica simplificação de linguagem apenas no modo paciente.
+
+    Retorna:
+        resposta_final
+        métricas NLP
+    """
+    if modo != "paciente":
+        return texto, {}
+
+    if simplificar_texto is None:
+        return texto, {}
+
+    try:
+        resultado = simplificar_texto(texto)
+
+        texto_final = resultado.get(
+            "texto_simplificado",
+            texto,
+        )
+
+        metricas = {
+            "original": resultado.get(
+                "metricas_original",
+                {},
+            ),
+            "simplificado": resultado.get(
+                "metricas_simplificado",
+                {},
+            ),
+        }
+
+        return texto_final, metricas
+
+    except Exception:
+        # A indisponibilidade do NLP não deve impedir o chat.
+        return texto, {}
+
+
+def processar_pergunta(pergunta: str) -> dict[str, Any]:
+    """
+    Fluxo completo do Assistente Sprint 3:
+
+    pergunta
+        ↓
+    busca semântica
+        ↓
+    RAG / guardrails
+        ↓
+    OpenAI
+        ↓
+    simplificação NLP
+        ↓
+    resposta ao usuário
+    """
+
+    pergunta = pergunta.strip()
+
+    if not pergunta:
+        raise ValueError(
+            "Digite uma pergunta antes de enviar."
+        )
+
+    api_key = obter_api_key()
+
+    if not api_key:
+        raise PermissionError(
+            "Configure sua OpenAI API Key na barra lateral."
+        )
+
+    resultado_busca = buscar_contexto_seguro(
+        pergunta
+    )
+
+    trechos_completos = resultado_busca.get(
+        "trechos",
+        [],
+    )
+
+    # O agente da Sprint 2 espera apenas os textos dos trechos.
+    trechos_texto = []
+
+    for trecho in trechos_completos:
+        if isinstance(trecho, dict):
+            conteudo = trecho.get(
+                "conteudo",
+                "",
+            )
+
+            if conteudo:
+                trechos_texto.append(
+                    str(conteudo)
+                )
+
+        elif trecho:
+            trechos_texto.append(
+                str(trecho)
+            )
+
+    from llm_connector import responder_com_llm
+
+    modo = modo_llm()
+
+    resultado_llm = responder_com_llm(
+        pergunta=pergunta,
+        trechos=trechos_texto,
+        modo=modo,
+        api_key=api_key,
+    )
+
+    status = resultado_llm.get(
+        "status",
+        "sem_contexto",
+    )
+
+    resposta_original = str(
+        resultado_llm.get(
+            "resposta",
+            "",
+        )
+    )
+
+    # Guardrails e ausência de contexto não devem ser
+    # reescritos pela simplificação NLP.
+    if status == "respondido":
+        resposta_final, metricas = aplicar_nlp_resposta(
+            resposta_original,
+            modo,
+        )
+    else:
+        resposta_final = resposta_original
+        metricas = {}
+
+    return {
+        "status": status,
+        "categoria": resultado_llm.get(
+            "categoria",
+            "",
+        ),
+        "resposta_original": resposta_original,
+        "resposta": resposta_final,
+        "fontes": trechos_completos,
+        "modo": modo,
+        "metricas_nlp": metricas,
+    }
+
+
+def classe_chat(status: str) -> tuple[str, str]:
+    """
+    Define estilo e ícone conforme o resultado do agente.
+    """
+    if status == "bloqueado":
+        return "chat-blocked", "⚠️"
+
+    if status == "sem_contexto":
+        return "chat-no-context", "ℹ️"
+
+    return "chat-assistant", "🧬"
+
+
+def exibir_fontes(
+    fontes: list[Any],
+) -> None:
+    """
+    Exibe os trechos realmente recuperados pelo RAG.
+    """
+    if not fontes:
+        return
+
+    quantidade = len(fontes)
+
+    with st.expander(
+        f"Fontes utilizadas ({quantidade})"
+    ):
+        for indice, fonte in enumerate(
+            fontes,
+            start=1,
+        ):
+            if isinstance(fonte, dict):
+                conteudo = str(
+                    fonte.get(
+                        "conteudo",
+                        "",
+                    )
+                )
+
+                secao = str(
+                    fonte.get(
+                        "secao",
+                        "Relatório",
+                    )
+                )
+
+                origem = str(
+                    fonte.get(
+                        "fonte",
+                        "Relatório genético",
+                    )
+                )
+
+                try:
+                    similaridade = float(
+                        fonte.get(
+                            "similaridade",
+                            0.0,
+                        )
+                    )
+                except (TypeError, ValueError):
+                    similaridade = 0.0
+
+            else:
+                conteudo = str(fonte)
+                secao = "Relatório"
+                origem = "Relatório genético"
+                similaridade = 0.0
+
+            trecho_exibido = conteudo
+
+            if len(trecho_exibido) > 320:
+                trecho_exibido = (
+                    trecho_exibido[:320]
+                    + "..."
+                )
+
+            st.markdown(
+                f"""
+                <div class="source-card">
+                    <strong>Fonte {indice} · {escapar(secao)}</strong>
+                    <br>
+                    {escapar(trecho_exibido)}
+                    <br>
+                    <small>
+                        Origem: {escapar(origem)}
+                    </small>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            if similaridade > 0:
+                similaridade_segura = max(
+                    0.0,
+                    min(
+                        similaridade,
+                        1.0,
+                    ),
+                )
+
+                st.progress(
+                    similaridade_segura,
+                    text=(
+                        "Relevância semântica: "
+                        f"{similaridade_segura:.0%}"
+                    ),
+                )
+
+
+def exibir_metricas_nlp(
+    metricas: dict[str, Any],
+) -> None:
+    """
+    Exibe métricas de simplificação apenas como
+    informação técnica complementar.
+    """
+    if not metricas:
+        return
+
+    original = metricas.get(
+        "original",
+        {},
+    )
+
+    simplificado = metricas.get(
+        "simplificado",
+        {},
+    )
+
+    if not original and not simplificado:
+        return
+
+    with st.expander(
+        "Como a linguagem foi simplificada?"
+    ):
+        st.caption(
+            "Estas métricas ajudam a demonstrar a camada "
+            "de NLP desenvolvida para a Sprint 3."
+        )
+
+        col_original, col_simplificado = st.columns(2)
+
+        with col_original:
+            st.markdown("**Texto original**")
+
+            if original:
+                for chave, valor in original.items():
+                    st.write(
+                        f"{str(chave).replace('_', ' ').title()}: "
+                        f"{valor}"
+                    )
+            else:
+                st.caption(
+                    "Métricas não disponíveis."
+                )
+
+        with col_simplificado:
+            st.markdown(
+                "**Texto apresentado ao paciente**"
+            )
+
+            if simplificado:
+                for chave, valor in simplificado.items():
+                    st.write(
+                        f"{str(chave).replace('_', ' ').title()}: "
+                        f"{valor}"
+                    )
+            else:
+                st.caption(
+                    "Métricas não disponíveis."
+                )
+
+
+def historico_para_resumo() -> list[dict[str, str]]:
+    """
+    Converte as mensagens do Streamlit para o formato
+    esperado por gerar_resumo_interacoes().
+    """
+    interacoes = []
+
+    pergunta_atual = None
+
+    for mensagem in st.session_state.messages:
+        role = mensagem.get(
+            "role"
+        )
+
+        if role == "user":
+            pergunta_atual = str(
+                mensagem.get(
+                    "content",
+                    "",
+                )
+            )
+
+        elif (
+            role == "assistant"
+            and pergunta_atual
+        ):
+            interacoes.append(
+                {
+                    "pergunta": pergunta_atual,
+                    "resposta": str(
+                        mensagem.get(
+                            "content",
+                            "",
+                        )
+                    ),
+                }
+            )
+
+            pergunta_atual = None
+
+    return interacoes
+
+
+# -----------------------------------------------------------------------------
+# Página: Assistente
+# -----------------------------------------------------------------------------
+
+elif st.session_state.pagina == "Assistente":
+    cabecalho_pagina(
+        "Assistente",
+        "Converse sobre seu relatório",
+        (
+            "Faça perguntas em linguagem natural. "
+            "As respostas utilizam busca semântica, RAG e "
+            "as salvaguardas desenvolvidas nas Sprints anteriores."
+        ),
+    )
+
+    disclaimer()
+
+    if not st.session_state.assistente_preparado:
+        st.info(
+            "Antes de conversar, clique em "
+            "'Preparar assistente' na barra lateral."
+        )
+
+    st.markdown(
+        """
+        <div class="content-card">
+            <strong>Algumas perguntas que você pode fazer:</strong>
+            <br><br>
+            • O que merece mais atenção no meu relatório?<br>
+            • Explique meu resultado de diabetes em linguagem simples.<br>
+            • O que minha ancestralidade significa?<br>
+            • Quais recomendações aparecem no meu relatório?
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # -------------------------------------------------------------------------
+    # Histórico visual
+    # -------------------------------------------------------------------------
+
+    if not st.session_state.messages:
+        tela_vazia(
+            "💬",
+            "Nenhuma conversa ainda",
+            (
+                "Escolha uma pergunta sugerida ou escreva "
+                "sua dúvida abaixo."
+            ),
+        )
+
+    else:
+        for mensagem in st.session_state.messages:
+            role = mensagem.get(
+                "role",
+                "",
+            )
+
+            conteudo = str(
+                mensagem.get(
+                    "content",
+                    "",
+                )
+            )
+
+            if role == "user":
+                st.markdown(
+                    f"""
+                    <div class="chat-user">
+                        <div class="chat-name">
+                            Você
+                        </div>
+                        {escapar(conteudo).replace(chr(10), "<br>")}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+            elif role == "assistant":
+                status = mensagem.get(
+                    "status",
+                    "respondido",
+                )
+
+                classe, icone = classe_chat(
+                    status
+                )
+
+                modo_msg = mensagem.get(
+                    "modo",
+                    "paciente",
+                )
+
+                modo_legivel = (
+                    "Paciente"
+                    if modo_msg == "paciente"
+                    else "Técnico"
+                )
+
+                st.markdown(
+                    f"""
+                    <div class="{classe}">
+                        <div class="chat-name">
+                            {icone} Genera AI · {escapar(modo_legivel)}
+                        </div>
+                        {escapar(conteudo).replace(chr(10), "<br>")}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                exibir_fontes(
+                    mensagem.get(
+                        "fontes",
+                        [],
+                    )
+                )
+
+                exibir_metricas_nlp(
+                    mensagem.get(
+                        "metricas_nlp",
+                        {},
+                    )
+                )
+
+    # -------------------------------------------------------------------------
+    # Pergunta sugerida vinda do Dashboard
+    # -------------------------------------------------------------------------
+
+    pergunta_sugerida = st.session_state.pop(
+        "pergunta_sugerida",
+        "",
+    )
+
+    # -------------------------------------------------------------------------
+    # Entrada do chat
+    # -------------------------------------------------------------------------
+
+    pergunta_chat = st.chat_input(
+        "Pergunte sobre seu relatório genético..."
+    )
+
+    pergunta_final = (
+        pergunta_sugerida
+        or pergunta_chat
+    )
+
+    if pergunta_final:
+        pergunta_final = pergunta_final.strip()
+
+        if not st.session_state.assistente_preparado:
+            st.warning(
+                "Prepare o assistente pela barra lateral "
+                "antes de enviar perguntas."
+            )
+
+        elif not obter_api_key():
+            st.error(
+                "Configure sua OpenAI API Key na barra lateral."
+            )
+
+        else:
+            st.session_state.messages.append(
+                {
+                    "role": "user",
+                    "content": pergunta_final,
+                }
+            )
+
+            with st.spinner(
+                "Analisando seu relatório..."
+            ):
+                try:
+                    resultado = processar_pergunta(
+                        pergunta_final
+                    )
+
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": resultado[
+                                "resposta"
+                            ],
+                            "resposta_original": resultado[
+                                "resposta_original"
+                            ],
+                            "status": resultado[
+                                "status"
+                            ],
+                            "categoria": resultado[
+                                "categoria"
+                            ],
+                            "fontes": resultado[
+                                "fontes"
+                            ],
+                            "modo": resultado[
+                                "modo"
+                            ],
+                            "metricas_nlp": resultado[
+                                "metricas_nlp"
+                            ],
+                        }
+                    )
+
+                except FileNotFoundError:
+                    st.session_state.messages.pop()
+
+                    st.error(
+                        "A base vetorial não foi encontrada. "
+                        "Clique em 'Preparar assistente' novamente."
+                    )
+
+                except PermissionError as erro:
+                    st.session_state.messages.pop()
+
+                    st.error(
+                        str(erro)
+                    )
+
+                except RuntimeError as erro:
+                    st.session_state.messages.pop()
+
+                    mensagem_erro = str(
+                        erro
+                    )
+
+                    if (
+                        "quota"
+                        in mensagem_erro.lower()
+                        or "limit"
+                        in mensagem_erro.lower()
+                    ):
+                        st.error(
+                            "O limite de uso da API foi atingido."
+                        )
+                    else:
+                        st.error(
+                            "Não foi possível gerar a resposta. "
+                            f"Detalhes: {mensagem_erro}"
+                        )
+
+                except Exception as erro:
+                    st.session_state.messages.pop()
+
+                    st.error(
+                        "Ocorreu um erro inesperado ao processar "
+                        f"a pergunta: {erro}"
+                    )
+
+            st.rerun()
+
+    if st.session_state.messages:
+        st.markdown("---")
+
+        if st.button(
+            "Limpar conversa",
+            use_container_width=False,
+        ):
+            st.session_state.messages = []
+            st.rerun()
+
+
+# -----------------------------------------------------------------------------
+# Página: Histórico
+# -----------------------------------------------------------------------------
+
+elif st.session_state.pagina == "Histórico":
+    cabecalho_pagina(
+        "Histórico",
+        "Resumo das suas interações",
+        (
+            "Veja as perguntas realizadas nesta sessão e os "
+            "principais temas identificados automaticamente."
+        ),
+    )
+
+    disclaimer()
+
+    interacoes = historico_para_resumo()
+
+    if not interacoes:
+        tela_vazia(
+            "🕘",
+            "Histórico vazio",
+            (
+                "As conversas realizadas com o assistente "
+                "aparecerão aqui."
+            ),
+        )
+
+    else:
+        col1, col2 = st.columns(
+            [0.58, 0.42]
+        )
+
+        with col1:
+            titulo_secao(
+                "Conversas da sessão",
+                f"{len(interacoes)} interação(ões)",
+            )
+
+            for indice, interacao in enumerate(
+                reversed(interacoes),
+                start=1,
+            ):
+                numero_original = (
+                    len(interacoes)
+                    - indice
+                    + 1
+                )
+
+                with st.expander(
+                    f"Interação {numero_original} · "
+                    f"{interacao['pergunta'][:70]}"
+                ):
+                    st.markdown(
+                        "**Pergunta**"
+                    )
+
+                    st.write(
+                        interacao[
+                            "pergunta"
+                        ]
+                    )
+
+                    st.markdown(
+                        "**Resposta**"
+                    )
+
+                    st.write(
+                        interacao[
+                            "resposta"
+                        ]
+                    )
+
+        with col2:
+            titulo_secao(
+                "Resumo automático",
+                "NLP",
+            )
+
+            if gerar_resumo_interacoes is not None:
+                try:
+                    resumo_historico = (
+                        gerar_resumo_interacoes(
+                            interacoes
+                        )
+                    )
+
+                    if (
+                        formatar_resumo_interacoes
+                        is not None
+                    ):
+                        resumo_formatado = (
+                            formatar_resumo_interacoes(
+                                resumo_historico
+                            )
+                        )
+                    else:
+                        resumo_formatado = str(
+                            resumo_historico
+                        )
+
+                    st.markdown(
+                        f"""
+                        <div class="summary-card">
+                            <div class="summary-lead">
+                                {
+                                    escapar(
+                                        resumo_formatado
+                                    ).replace(
+                                        chr(10),
+                                        "<br>"
+                                    )
+                                }
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                except Exception as erro:
+                    st.info(
+                        "O resumo das interações não pôde "
+                        f"ser gerado: {erro}"
+                    )
+
+            else:
+                st.info(
+                    "O módulo de resumo automático "
+                    "não está disponível."
+                )
+
+    st.markdown(
+        """
+        <div class="privacy-note">
+            Este histórico utiliza apenas o estado da sessão atual
+            do Streamlit. Ao encerrar a sessão, esta interface não
+            mantém um banco próprio com as conversas do paciente.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
