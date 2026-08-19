@@ -523,3 +523,500 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+# -----------------------------------------------------------------------------
+# Estado da sessão
+# -----------------------------------------------------------------------------
+
+VALORES_PADRAO_SESSAO = {
+    "pagina": "Visão geral",
+    "dados": None,
+    "arquivo_relatorio": None,
+    "messages": [],
+    "assistente_preparado": False,
+    "modo_resposta": "Paciente",
+    "resumo_relatorio": None,
+    "erro_relatorio": None,
+}
+
+for chave, valor in VALORES_PADRAO_SESSAO.items():
+    if chave not in st.session_state:
+        st.session_state[chave] = valor
+
+
+# -----------------------------------------------------------------------------
+# Utilidades
+# -----------------------------------------------------------------------------
+
+def escapar(valor: Any) -> str:
+    """Escapa conteúdo antes de inserir em HTML."""
+    if valor is None:
+        return ""
+    return html.escape(str(valor))
+
+
+def carregar_json(caminho: Path) -> dict[str, Any]:
+    """Carrega um relatório JSON e garante que o conteúdo seja um objeto."""
+    with caminho.open("r", encoding="utf-8") as arquivo:
+        dados = json.load(arquivo)
+
+    if not isinstance(dados, dict):
+        raise ValueError("O relatório deve conter um objeto JSON na raiz.")
+
+    return dados
+
+
+def hash_bytes(conteudo: bytes) -> str:
+    """Cria identificador curto para evitar salvar uploads duplicados."""
+    return hashlib.sha256(conteudo).hexdigest()[:16]
+
+
+def salvar_upload(nome: str, conteudo: bytes) -> Path:
+    """
+    Salva temporariamente um relatório enviado pelo usuário.
+
+    O nome final não utiliza diretamente o nome original do arquivo,
+    reduzindo problemas com caracteres especiais e colisões.
+    """
+    extensao = Path(nome).suffix.lower()
+
+    if extensao != ".json":
+        raise ValueError("Nesta versão, o relatório deve estar em formato JSON.")
+
+    identificador = hash_bytes(conteudo)
+    destino = PASTA_UPLOADS / f"relatorio_{identificador}.json"
+
+    if not destino.exists():
+        destino.write_bytes(conteudo)
+
+    return destino
+
+
+def obter_primeiro(dados: dict[str, Any], *chaves: str, padrao: Any = None) -> Any:
+    """Retorna o primeiro campo encontrado entre várias possibilidades."""
+    for chave in chaves:
+        if chave in dados and dados[chave] not in (None, "", [], {}):
+            return dados[chave]
+
+    return padrao
+
+
+def obter_nome_paciente(dados: dict[str, Any]) -> str:
+    """
+    Obtém apenas o primeiro nome para personalização da interface.
+
+    CPF e outros identificadores não são exibidos.
+    """
+    paciente = dados.get("paciente", {})
+
+    if isinstance(paciente, dict):
+        nome = obter_primeiro(
+            paciente,
+            "nome",
+            "nome_completo",
+            "name",
+            padrao="Paciente",
+        )
+    else:
+        nome = "Paciente"
+
+    primeiro_nome = str(nome).strip().split(" ")[0]
+
+    return primeiro_nome or "Paciente"
+
+
+def obter_resultados(dados: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normaliza a lista de resultados genéticos."""
+    resultados = dados.get("resultados", [])
+
+    if isinstance(resultados, list):
+        return [item for item in resultados if isinstance(item, dict)]
+
+    return []
+
+
+def obter_ancestralidade(dados: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normaliza a seção de ancestralidade."""
+    ancestralidade = dados.get("ancestralidade", [])
+
+    if isinstance(ancestralidade, list):
+        return [item for item in ancestralidade if isinstance(item, dict)]
+
+    if isinstance(ancestralidade, dict):
+        # Alguns formatos agrupam regiões em uma chave interna.
+        for chave in ("regioes", "resultados", "composicao"):
+            valor = ancestralidade.get(chave)
+
+            if isinstance(valor, list):
+                return [item for item in valor if isinstance(item, dict)]
+
+    return []
+
+
+def normalizar_risco(valor: Any) -> str:
+    """
+    Converte diferentes nomenclaturas de risco em três categorias visuais.
+
+    A classificação original não é alterada no relatório.
+    Ela é apenas traduzida para uma apresentação menos alarmista.
+    """
+    texto = str(valor or "").strip().lower()
+
+    alto = {
+        "alto",
+        "alta",
+        "elevado",
+        "elevada",
+        "high",
+        "aumentado",
+        "aumentada",
+        "maior",
+    }
+
+    medio = {
+        "medio",
+        "médio",
+        "media",
+        "média",
+        "moderado",
+        "moderada",
+        "medium",
+        "intermediario",
+        "intermediário",
+        "intermediaria",
+        "intermediária",
+    }
+
+    baixo = {
+        "baixo",
+        "baixa",
+        "reduzido",
+        "reduzida",
+        "low",
+        "menor",
+    }
+
+    if texto in alto or any(palavra in texto for palavra in alto):
+        return "alto"
+
+    if texto in medio or any(palavra in texto for palavra in medio):
+        return "medio"
+
+    if texto in baixo or any(palavra in texto for palavra in baixo):
+        return "baixo"
+
+    return "indefinido"
+
+
+def obter_risco_resultado(resultado: dict[str, Any]) -> str:
+    """Procura o campo de risco usado pelo relatório."""
+    valor = obter_primeiro(
+        resultado,
+        "risco",
+        "nivel_risco",
+        "classificacao",
+        "predisposicao",
+        "risk",
+        padrao="",
+    )
+
+    return normalizar_risco(valor)
+
+
+def rotulo_risco(risco: str) -> str:
+    """Rótulo mostrado ao paciente."""
+    return {
+        "alto": "Maior atenção",
+        "medio": "Atenção moderada",
+        "baixo": "Menor atenção",
+        "indefinido": "Informativo",
+    }.get(risco, "Informativo")
+
+
+def classe_risco(risco: str) -> str:
+    """Classe CSS correspondente ao nível visual."""
+    return {
+        "alto": "risk-high",
+        "medio": "risk-medium",
+        "baixo": "risk-low",
+        "indefinido": "risk-medium",
+    }.get(risco, "risk-medium")
+
+
+def nome_resultado(resultado: dict[str, Any]) -> str:
+    """Obtém o nome principal da condição/característica."""
+    return str(
+        obter_primeiro(
+            resultado,
+            "doenca",
+            "condicao",
+            "caracteristica",
+            "titulo",
+            "nome",
+            padrao="Resultado genético",
+        )
+    )
+
+
+def categoria_resultado(resultado: dict[str, Any]) -> str:
+    return str(
+        obter_primeiro(
+            resultado,
+            "categoria",
+            "tipo",
+            "grupo",
+            padrao="Perfil genético",
+        )
+    )
+
+
+def descricao_resultado(resultado: dict[str, Any]) -> str:
+    """Prioriza a descrição já simplificada quando disponível."""
+    return str(
+        obter_primeiro(
+            resultado,
+            "descricao_simples",
+            "explicacao_simples",
+            "descricao",
+            "interpretacao",
+            "descricao_tecnica",
+            padrao="Consulte os detalhes deste resultado no relatório.",
+        )
+    )
+
+
+def recomendacao_resultado(resultado: dict[str, Any]) -> str:
+    return str(
+        obter_primeiro(
+            resultado,
+            "recomendacao",
+            "orientacao",
+            "impacto_pratico",
+            padrao=(
+                "Este resultado é informativo e deve ser interpretado "
+                "junto ao contexto clínico e familiar."
+            ),
+        )
+    )
+
+
+def para_percentual(valor: Any) -> float:
+    """
+    Converte valores de ancestralidade para percentual de 0 a 100.
+
+    Aceita tanto 35 como 0.35.
+    """
+    try:
+        numero = float(
+            str(valor)
+            .replace("%", "")
+            .replace(",", ".")
+            .strip()
+        )
+    except (TypeError, ValueError):
+        return 0.0
+
+    if 0 <= numero <= 1:
+        numero *= 100
+
+    return max(0.0, min(numero, 100.0))
+
+
+def dados_regiao_ancestralidade(item: dict[str, Any]) -> tuple[str, float]:
+    regiao = obter_primeiro(
+        item,
+        "regiao",
+        "origem",
+        "populacao",
+        "nome",
+        padrao="Outra região",
+    )
+
+    percentual = obter_primeiro(
+        item,
+        "percentual",
+        "porcentagem",
+        "valor",
+        "percentage",
+        padrao=0,
+    )
+
+    return str(regiao), para_percentual(percentual)
+
+
+def contagem_riscos(resultados: list[dict[str, Any]]) -> dict[str, int]:
+    contagem = {
+        "alto": 0,
+        "medio": 0,
+        "baixo": 0,
+        "indefinido": 0,
+    }
+
+    for resultado in resultados:
+        risco = obter_risco_resultado(resultado)
+        contagem[risco] = contagem.get(risco, 0) + 1
+
+    return contagem
+
+
+# -----------------------------------------------------------------------------
+# Componentes visuais
+# -----------------------------------------------------------------------------
+
+def cabecalho_pagina(
+    eyebrow: str,
+    titulo: str,
+    subtitulo: str,
+) -> None:
+    st.markdown(
+        f"""
+        <div>
+            <div class="eyebrow">{escapar(eyebrow)}</div>
+            <h1 class="page-title">{escapar(titulo)}</h1>
+            <p class="page-subtitle">{escapar(subtitulo)}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def disclaimer() -> None:
+    st.markdown(
+        """
+        <div class="disclaimer">
+            <strong>Informação importante:</strong>
+            esta experiência apresenta interpretações educativas baseadas
+            exclusivamente no relatório genético analisado. Os resultados
+            representam predisposições e características genéticas e
+            <strong>não constituem diagnóstico médico</strong>.
+            Para decisões relacionadas à saúde, procure um profissional qualificado.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def card_metrica(
+    titulo: str,
+    valor: Any,
+    ajuda: str,
+) -> None:
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">{escapar(titulo)}</div>
+            <div class="metric-value">{escapar(valor)}</div>
+            <div class="metric-help">{escapar(ajuda)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def titulo_secao(titulo: str, complemento: str = "") -> None:
+    st.markdown(
+        f"""
+        <div class="section-title">
+            <h3>{escapar(titulo)}</h3>
+            <span>{escapar(complemento)}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def card_resultado(resultado: dict[str, Any]) -> None:
+    risco = obter_risco_resultado(resultado)
+
+    nome = nome_resultado(resultado)
+    categoria = categoria_resultado(resultado)
+    descricao = descricao_resultado(resultado)
+    recomendacao = recomendacao_resultado(resultado)
+
+    st.markdown(
+        f"""
+        <div class="result-card">
+            <div class="result-top">
+                <div>
+                    <h4>{escapar(nome)}</h4>
+                    <div class="result-category">
+                        {escapar(categoria)}
+                    </div>
+                </div>
+
+                <span class="risk-pill {classe_risco(risco)}">
+                    {escapar(rotulo_risco(risco))}
+                </span>
+            </div>
+
+            <div class="result-description">
+                {escapar(descricao)}
+            </div>
+
+            <div class="result-note">
+                <strong>Orientação:</strong>
+                {escapar(recomendacao)}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def barra_ancestralidade(
+    regiao: str,
+    percentual: float,
+) -> None:
+    st.markdown(
+        f"""
+        <div class="ancestry-row">
+            <div class="ancestry-meta">
+                <span class="ancestry-region">{escapar(regiao)}</span>
+                <span class="ancestry-value">{percentual:.1f}%</span>
+            </div>
+
+            <div class="ancestry-track">
+                <div
+                    class="ancestry-fill"
+                    style="width: {percentual:.2f}%;">
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def tela_vazia(
+    icone: str,
+    titulo: str,
+    texto: str,
+) -> None:
+    st.markdown(
+        f"""
+        <div class="empty-card">
+            <div class="icon">{escapar(icone)}</div>
+            <strong>{escapar(titulo)}</strong>
+            <p>{escapar(texto)}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Carregamento inicial do relatório
+# -----------------------------------------------------------------------------
+
+if st.session_state.dados is None:
+    if JSON_DEMO.exists():
+        try:
+            st.session_state.dados = carregar_json(JSON_DEMO)
+            st.session_state.arquivo_relatorio = str(JSON_DEMO)
+            st.session_state.erro_relatorio = None
+        except Exception as erro:
+            st.session_state.erro_relatorio = str(erro)
+    else:
+        st.session_state.erro_relatorio = (
+            "O arquivo dados_estruturados.json não foi encontrado na raiz "
+            "do projeto."
+        )
