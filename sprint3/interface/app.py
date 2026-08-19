@@ -2155,7 +2155,7 @@ def historico_para_resumo() -> list[dict[str, str]]:
 # Página: Assistente
 # -----------------------------------------------------------------------------
 
-elif st.session_state.pagina == "Assistente":
+if st.session_state.pagina == "Assistente":
     cabecalho_pagina(
         "Assistente",
         "Converse sobre seu relatório",
