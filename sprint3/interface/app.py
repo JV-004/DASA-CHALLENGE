@@ -2823,118 +2823,126 @@ def processar_pergunta(
             "Configure sua OpenAI API Key."
         )
 
-    resultado_busca = (
-        buscar_contexto_seguro(
-            pergunta
-        )
-    )
-
-    trechos_completos = (
-        resultado_busca.get(
-            "trechos",
-            [],
-        )
-    )
-
-    trechos_texto = []
-
-    for trecho in trechos_completos:
-
-        if isinstance(
-            trecho,
-            dict,
-        ):
-
-            conteudo = trecho.get(
-                "conteudo",
-                "",
-            )
-
-            if conteudo:
-
-                trechos_texto.append(
-                    str(conteudo)
-                )
-
-        elif trecho:
-
-            trechos_texto.append(
-                str(trecho)
-            )
-
-    from llm_connector import (
-        responder_com_llm,
-    )
+    # =========================================================================
+    # INTEGRAÇÃO SPRINT 3 — RAG PERSONALIZADO + NLP
+    # =========================================================================
+    # ANTES: buscar_contexto_seguro() -> responder_com_llm() -> aplicar_nlp_resposta()
+    # AGORA: responder_com_linguagem_simples(), que encapsula exatamente esse
+    #        mesmo fluxo (busca semântica -> LLM real -> simplificação) e ainda:
+    #
+    #          - perfil de usuário (hoje o dashboard só tem o modo binário);
+    #          - validação de ancoragem: verifica que a resposta não afirma
+    #            número, SNP ou gene ausente do relatório;
+    #          - revalidação da ancoragem DEPOIS da simplificação, para que o
+    #            texto exibido seja o texto validado (hoje a simplificação roda
+    #            após a checagem, então o exibido não é o verificado);
+    #          - histórico por usuário atrás de uma interface trocável.
+    #
+    # O caminho de resposta continua sendo o REAL (GPT-4.1 Mini via
+    # llm_connector.responder_com_llm) — apenas encapsulado.
+    #
+    # O formato de retorno FOI PRESERVADO: todas as chaves que a interface já
+    # consumia continuam iguais. "ancoragem" é acréscimo aditivo e opcional.
+    #
+    # buscar_contexto_seguro() e aplicar_nlp_resposta() foram mantidas no
+    # arquivo (agora sem uso) para não remover código de outro integrante.
+    from sprint3.integracao import responder_com_linguagem_simples
+    from sprint3.rag_personalizacao import HistoricoMemoria
 
     modo = (
         modo_llm()
     )
 
-    resultado_llm = (
-        responder_com_llm(
+    perfil = (
+        "medico"
+        if modo == "tecnico"
+        else "leigo_ansioso"
+    )
+
+    # O histórico vive na sessão do Streamlit para dar continuidade entre as
+    # perguntas. Quando a persistência real existir, troca-se apenas esta linha.
+    if "historico_rag" not in st.session_state:
+
+        st.session_state.historico_rag = (
+            HistoricoMemoria()
+        )
+
+    resultado = (
+        responder_com_linguagem_simples(
             pergunta=pergunta,
-            trechos=trechos_texto,
-            modo=modo,
+            perfil=perfil,
+            usuario_id=st.session_state.get(
+                "usuario_id",
+                "dashboard",
+            ),
             api_key=api_key,
+            historico=st.session_state.historico_rag,
         )
     )
 
-    status = (
-        resultado_llm.get(
-            "status",
-            "sem_contexto",
+    simplificacao = (
+        resultado.get(
+            "simplificacao",
+            {},
         )
     )
 
-    resposta_original = str(
-        resultado_llm.get(
-            "resposta",
-            "",
-        )
-    )
+    metricas = {
+        "original":
+            simplificacao.get(
+                "metricas_original",
+                {},
+            ),
 
-    if status == "respondido":
-
-        (
-            resposta_final,
-            metricas,
-        ) = aplicar_nlp_resposta(
-            resposta_original,
-            modo,
-        )
-
-    else:
-
-        resposta_final = (
-            resposta_original
-        )
-
-        metricas = {}
+        "simplificado":
+            simplificacao.get(
+                "metricas_simplificado",
+                {},
+            ),
+    }
 
     return {
         "status":
-            status,
+            resultado.get(
+                "status",
+                "sem_contexto",
+            ),
 
         "categoria":
-            resultado_llm.get(
+            resultado.get(
                 "categoria",
                 "",
             ),
 
         "resposta_original":
-            resposta_original,
+            resultado.get(
+                "resposta",
+                "",
+            ),
 
         "resposta":
-            resposta_final,
+            resultado.get(
+                "resposta_simplificada",
+                "",
+            ),
 
         "fontes":
-            trechos_completos,
+            resultado.get(
+                "fontes",
+                [],
+            ),
 
         "modo":
             modo,
 
         "metricas_nlp":
             metricas,
+
+        "ancoragem":
+            resultado.get(
+                "ancoragem",
+                {},
+            ),
     }
 
 
