@@ -5,7 +5,8 @@
 </p>
 
 <h1 align="center">Projeto Genera · Dasa</h1>
-<h3 align="center">Sprint 3 — Produto Usável: Dashboard, Personalização e Comunicação Responsável</h3>
+<h2 align="center">Fase 5 — Conectando Mundos: IA Multimodal em Aplicações Enterprise</h2>
+<h3 align="center">Enterprise Challenge · Sprint 3 · DASA</h3>
 <h4 align="center">Transformando relatórios genéticos em uma experiência conversacional inteligente, segura e acessível</h4>
 
 <p align="center">
