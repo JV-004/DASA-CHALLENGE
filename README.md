@@ -50,6 +50,7 @@
 10. [Governança, Ética e LGPD](#10-governança-ética-e-lgpd)
 11. [Continuidade — da Sprint 1 para a Sprint 2](#11-continuidade--da-sprint-1-para-a-sprint-2)
 12. [Vídeo de apresentação](#12-vídeo-de-apresentação)
+13. [Sprint 3 — Personalização do RAG](#13-sprint-3--personalização-do-rag)
 
 ---
 
@@ -329,7 +330,7 @@ O `agente_especialista.py` do Integrante 3 produz o prompt final mas usa uma fun
 |---|---|
 | `sprint2/interface/app.py` | Interface Streamlit completa |
 | `sprint2/interface/llm_connector.py` | Integração real com a API OpenAI |
-| `sprint2/interface/requirements_interface.txt` | Dependências da interface |
+| `requirements.txt` (raiz) | Dependências do projeto, incluindo as da interface |
 | `sprint2/interface/.env.example` | Template de configuração da API key |
 | `sprint2/interface/README_integrante4.md` | Documentação técnica do Integrante 4 |
 
@@ -351,7 +352,7 @@ git clone <url-do-repositorio>
 cd <nome-da-pasta>
 
 # 2. Instalar dependências
-pip install -r sprint2/interface/requirements_interface.txt
+pip install -r requirements.txt
 ```
 
 ### Configuração da API Key
@@ -581,6 +582,8 @@ resultado = responder_personalizado(
 
 ```bash
 pytest sprint3/rag_personalizacao/ -v    # 32 testes, sem API key
+pytest sprint3/integracao/ -v            # 19 testes da integração com o NLP
+pytest                                   # 51 testes no total
 ```
 
 ### Histórico — ponto de troca

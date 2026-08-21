@@ -7,6 +7,9 @@ sprint2/embeddings/chunks.json
 # Uploads temporários recebidos pela interface Streamlit
 sprint2/interface/uploads/
 
+# Guia de contexto para agentes de IA — ferramenta local, não faz parte da entrega
+CLAUDE.md
+
 # Python
 __pycache__/
 *.py[cod]
