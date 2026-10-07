@@ -1,0 +1,8 @@
+# Dependências necessárias para o deploy da aplicação Streamlit.
+# Mantidas alinhadas ao requirements.txt principal do projeto.
+
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+streamlit>=1.32.0
+openai>=1.0.0
+python-dotenv>=1.0.0

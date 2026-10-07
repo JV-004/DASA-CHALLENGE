@@ -8,23 +8,41 @@ Responsável por:
 4. Retornar os trechos mais relevantes do relatório
 5. Exibir fonte, seção e similaridade
 
-Uso no terminal:
+A base vetorial pode ser informada dinamicamente.
+Isso permite utilizar uma base ChromaDB isolada para cada relatório.
+
+Uso padrão no terminal:
     python sprint2/vetorial/buscar.py
+
+Uso com uma base específica:
+    python sprint2/vetorial/buscar.py caminho/para/chromadb
 """
 
 import sys
+from functools import lru_cache
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 import chromadb
 from sentence_transformers import SentenceTransformer
 
 
-# ── Configurações ─────────────────────────────────────────────────────────────
+# =============================================================================
+# CONFIGURAÇÕES
+# =============================================================================
 
-RAIZ = Path(__file__).resolve().parents[2]
+RAIZ = (
+    Path(__file__)
+    .resolve()
+    .parents[2]
+)
 
-BASE_VETORIAL = RAIZ / "sprint2" / "vetorial" / "base_vetorial"
+BASE_VETORIAL = (
+    RAIZ
+    / "sprint2"
+    / "vetorial"
+    / "base_vetorial"
+)
 
 COLECAO_NOME = "genera_relatorio"
 
@@ -32,44 +50,101 @@ MODELO_NOME = "all-MiniLM-L6-v2"
 
 TOP_K_PADRAO = 3
 
-SIMILARIDADE_MINIMA = 0.50
+SIMILARIDADE_MINIMA = 0.35
 
 
-# ── Carregamento ──────────────────────────────────────────────────────────────
+# =============================================================================
+# CARREGAMENTO DO MODELO
+# =============================================================================
 
+@lru_cache(maxsize=1)
 def carregar_modelo() -> SentenceTransformer:
     """
-    Carrega o mesmo modelo usado na geração dos embeddings dos chunks.
+    Carrega o mesmo modelo utilizado para gerar
+    os embeddings dos chunks.
+
+    O cache evita carregar o modelo novamente
+    a cada pergunta realizada pelo usuário.
     """
-    return SentenceTransformer(MODELO_NOME)
+
+    return SentenceTransformer(
+        MODELO_NOME
+    )
 
 
-def carregar_colecao():
+# =============================================================================
+# CARREGAMENTO DA BASE VETORIAL
+# =============================================================================
+
+def carregar_colecao(
+    base_path: Path = BASE_VETORIAL,
+):
     """
     Conecta à base vetorial persistida no ChromaDB.
+
+    O caminho pode ser informado dinamicamente,
+    permitindo uma base independente para cada
+    relatório.
     """
-    if not BASE_VETORIAL.exists():
+
+    base_path = Path(
+        base_path
+    )
+
+    if not base_path.exists():
+
         raise FileNotFoundError(
-            f"Base vetorial não encontrada em: {BASE_VETORIAL}\n"
-            "Execute primeiro:\n"
-            "  python sprint2/embeddings/gerar_embeddings.py\n"
-            "  python sprint2/vetorial/indexar.py"
+            "Base vetorial não encontrada em: "
+            f"{base_path}\n"
+            "Prepare o assistente antes "
+            "de realizar uma busca."
         )
 
-    cliente = chromadb.PersistentClient(path=str(BASE_VETORIAL))
-    return cliente.get_collection(COLECAO_NOME)
+    cliente = (
+        chromadb.PersistentClient(
+            path=str(
+                base_path
+            )
+        )
+    )
+
+    try:
+
+        colecao = (
+            cliente.get_collection(
+                COLECAO_NOME
+            )
+        )
+
+    except Exception as erro:
+
+        raise FileNotFoundError(
+            "A coleção vetorial "
+            f"'{COLECAO_NOME}' "
+            "não foi encontrada em: "
+            f"{base_path}"
+        ) from erro
+
+    return colecao
 
 
-# ── Busca Semântica ───────────────────────────────────────────────────────────
+# =============================================================================
+# BUSCA SEMÂNTICA
+# =============================================================================
 
 def buscar_trechos(
     pergunta: str,
     top_k: int = TOP_K_PADRAO,
-    similaridade_minima: float = SIMILARIDADE_MINIMA
+    similaridade_minima: float = SIMILARIDADE_MINIMA,
+    base_path: Path = BASE_VETORIAL,
 ) -> List[Dict[str, Any]]:
     """
-    Recebe uma pergunta em linguagem natural e retorna os trechos mais relevantes
-    do relatório genético.
+    Recebe uma pergunta em linguagem natural
+    e retorna os trechos mais relevantes do
+    relatório genético.
+
+    A busca pode utilizar uma base ChromaDB
+    específica através de base_path.
 
     Retorno:
         [
@@ -82,69 +157,206 @@ def buscar_trechos(
         ]
     """
 
-    if not pergunta or not pergunta.strip():
-        raise ValueError("A pergunta não pode estar vazia.")
+    if (
+        not pergunta
+        or not pergunta.strip()
+    ):
 
-    modelo = carregar_modelo()
-    colecao = carregar_colecao()
+        raise ValueError(
+            "A pergunta não pode estar vazia."
+        )
 
-    embedding_pergunta = modelo.encode(pergunta).tolist()
 
-    resultados = colecao.query(
-        query_embeddings=[embedding_pergunta],
-        n_results=top_k,
-        include=["documents", "metadatas", "distances"]
+    base_path = Path(
+        base_path
     )
+
+
+    modelo = (
+        carregar_modelo()
+    )
+
+    colecao = (
+        carregar_colecao(
+            base_path
+        )
+    )
+
+
+    embedding_pergunta = (
+        modelo.encode(
+            pergunta
+        )
+        .tolist()
+    )
+
+
+    resultados = (
+        colecao.query(
+            query_embeddings=[
+                embedding_pergunta
+            ],
+            n_results=top_k,
+            include=[
+                "documents",
+                "metadatas",
+                "distances",
+            ],
+        )
+    )
+
 
     trechos = []
 
-    documentos = resultados.get("documents", [[]])[0]
-    metadados = resultados.get("metadatas", [[]])[0]
-    distancias = resultados.get("distances", [[]])[0]
 
-    for documento, metadata, distancia in zip(documentos, metadados, distancias):
-        similaridade = round(1 - distancia, 4)
+    documentos = (
+        resultados.get(
+            "documents",
+            [[]],
+        )[0]
+    )
 
-        if similaridade < similaridade_minima:
+    metadados = (
+        resultados.get(
+            "metadatas",
+            [[]],
+        )[0]
+    )
+
+    distancias = (
+        resultados.get(
+            "distances",
+            [[]],
+        )[0]
+    )
+
+
+    for (
+        documento,
+        metadata,
+        distancia,
+    ) in zip(
+        documentos,
+        metadados,
+        distancias,
+    ):
+
+        similaridade = (
+            round(
+                1 - distancia,
+                4,
+            )
+        )
+
+        if (
+            similaridade
+            < similaridade_minima
+        ):
             continue
 
-        trechos.append({
-            "conteudo": documento,
-            "secao": metadata.get("secao", ""),
-            "fonte": metadata.get("fonte", ""),
-            "similaridade": similaridade
-        })
+
+        trechos.append(
+            {
+                "conteudo":
+                    documento,
+
+                "secao":
+                    metadata.get(
+                        "secao",
+                        "",
+                    ),
+
+                "fonte":
+                    metadata.get(
+                        "fonte",
+                        "",
+                    ),
+
+                "similaridade":
+                    similaridade,
+            }
+        )
+
 
     return trechos
 
 
-def montar_contexto(trechos: List[Dict[str, Any]]) -> str:
+# =============================================================================
+# MONTAGEM DO CONTEXTO
+# =============================================================================
+
+def montar_contexto(
+    trechos: List[
+        Dict[str, Any]
+    ],
+) -> str:
     """
-    Monta o contexto que será enviado ao agente/LLM.
+    Monta o contexto que será enviado
+    ao agente / LLM.
     """
 
     if not trechos:
         return ""
 
-    contexto = "TRECHOS RECUPERADOS DO RELATÓRIO GENÉTICO:\n\n"
 
-    for i, trecho in enumerate(trechos, start=1):
-        contexto += f"[Fonte {i}]\n"
-        contexto += f"Seção: {trecho['secao']}\n"
-        contexto += f"Origem: {trecho['fonte']}\n"
-        contexto += f"Similaridade: {trecho['similaridade']}\n"
-        contexto += f"Conteúdo: {trecho['conteudo']}\n\n"
+    contexto = (
+        "TRECHOS RECUPERADOS "
+        "DO RELATÓRIO GENÉTICO:\n\n"
+    )
+
+
+    for (
+        indice,
+        trecho,
+    ) in enumerate(
+        trechos,
+        start=1,
+    ):
+
+        contexto += (
+            f"[Fonte {indice}]\n"
+        )
+
+        contexto += (
+            "Seção: "
+            f"{trecho['secao']}\n"
+        )
+
+        contexto += (
+            "Origem: "
+            f"{trecho['fonte']}\n"
+        )
+
+        contexto += (
+            "Similaridade: "
+            f"{trecho['similaridade']}\n"
+        )
+
+        contexto += (
+            "Conteúdo: "
+            f"{trecho['conteudo']}\n\n"
+        )
+
 
     return contexto.strip()
 
 
+# =============================================================================
+# FUNÇÃO PRINCIPAL PARA INTEGRAÇÃO COM O AGENTE
+# =============================================================================
+
 def buscar_contexto(
     pergunta: str,
     top_k: int = TOP_K_PADRAO,
-    similaridade_minima: float = SIMILARIDADE_MINIMA
+    similaridade_minima: float = SIMILARIDADE_MINIMA,
+    base_path: Path = BASE_VETORIAL,
 ) -> Dict[str, Any]:
     """
-    Função principal para integração com o agente.
+    Função principal para integração com
+    o agente.
+
+    A base vetorial pode ser informada
+    através de base_path.
 
     Retorna:
         {
@@ -155,69 +367,217 @@ def buscar_contexto(
         }
     """
 
-    trechos = buscar_trechos(
-        pergunta=pergunta,
-        top_k=top_k,
-        similaridade_minima=similaridade_minima
+    trechos = (
+        buscar_trechos(
+            pergunta=pergunta,
+            top_k=top_k,
+            similaridade_minima=(
+                similaridade_minima
+            ),
+            base_path=base_path,
+        )
     )
 
-    contexto = montar_contexto(trechos)
+
+    contexto = (
+        montar_contexto(
+            trechos
+        )
+    )
+
 
     return {
-        "pergunta": pergunta,
-        "encontrou_contexto": len(trechos) > 0,
-        "trechos": trechos,
-        "contexto": contexto
+        "pergunta":
+            pergunta,
+
+        "encontrou_contexto":
+            len(trechos) > 0,
+
+        "trechos":
+            trechos,
+
+        "contexto":
+            contexto,
     }
 
 
-# ── Execução via terminal ─────────────────────────────────────────────────────
+# =============================================================================
+# EXIBIÇÃO NO TERMINAL
+# =============================================================================
 
-def imprimir_resultados(pergunta: str, trechos: List[Dict[str, Any]]) -> None:
+def imprimir_resultados(
+    pergunta: str,
+    trechos: List[
+        Dict[str, Any]
+    ],
+) -> None:
     """
-    Exibe os resultados da busca no terminal.
+    Exibe os resultados da busca
+    no terminal.
     """
 
-    print("\n" + "=" * 70)
-    print("BUSCA SEMÂNTICA — RESULTADO")
-    print("=" * 70)
-    print(f"Pergunta: {pergunta}")
+    print(
+        "\n"
+        + "=" * 70
+    )
+
+    print(
+        "BUSCA SEMÂNTICA — RESULTADO"
+    )
+
+    print(
+        "=" * 70
+    )
+
+    print(
+        f"Pergunta: {pergunta}"
+    )
+
 
     if not trechos:
-        print("\nNenhum trecho com similaridade suficiente foi encontrado.")
-        print("O agente deve responder que não encontrou informação no relatório.")
-        return
 
-    for i, trecho in enumerate(trechos, start=1):
-        print("\n" + "-" * 70)
-        print(f"Fonte {i}")
-        print("-" * 70)
-        print(f"Similaridade: {trecho['similaridade']}")
-        print(f"Seção: {trecho['secao']}")
-        print(f"Fonte: {trecho['fonte']}")
-        print(f"Trecho: {trecho['conteudo']}")
-
-
-def main() -> None:
-    print("=" * 70)
-    print("BUSCA SEMÂNTICA — Sprint 2 / Genera / Dasa")
-    print("=" * 70)
-
-    try:
-        pergunta = input("\nDigite sua pergunta sobre o relatório genético: ").strip()
-
-        resultado = buscar_contexto(pergunta)
-
-        imprimir_resultados(
-            pergunta=resultado["pergunta"],
-            trechos=resultado["trechos"]
+        print(
+            "\nNenhum trecho com "
+            "similaridade suficiente "
+            "foi encontrado."
         )
 
+        print(
+            "O agente deve responder "
+            "que não encontrou informação "
+            "no relatório."
+        )
+
+        return
+
+
+    for (
+        indice,
+        trecho,
+    ) in enumerate(
+        trechos,
+        start=1,
+    ):
+
+        print(
+            "\n"
+            + "-" * 70
+        )
+
+        print(
+            f"Fonte {indice}"
+        )
+
+        print(
+            "-" * 70
+        )
+
+        print(
+            "Similaridade: "
+            f"{trecho['similaridade']}"
+        )
+
+        print(
+            "Seção: "
+            f"{trecho['secao']}"
+        )
+
+        print(
+            "Fonte: "
+            f"{trecho['fonte']}"
+        )
+
+        print(
+            "Trecho: "
+            f"{trecho['conteudo']}"
+        )
+
+
+# =============================================================================
+# EXECUÇÃO VIA TERMINAL
+# =============================================================================
+
+def main(
+    base_path: Path = BASE_VETORIAL,
+) -> None:
+
+    print(
+        "=" * 70
+    )
+
+    print(
+        "BUSCA SEMÂNTICA "
+        "— Sprint 2 / Genera / Dasa"
+    )
+
+    print(
+        "=" * 70
+    )
+
+    print(
+        "Base vetorial: "
+        f"{base_path}"
+    )
+
+
+    try:
+
+        pergunta = input(
+            "\nDigite sua pergunta "
+            "sobre o relatório genético: "
+        ).strip()
+
+
+        resultado = (
+            buscar_contexto(
+                pergunta,
+                base_path=base_path,
+            )
+        )
+
+
+        imprimir_resultados(
+            pergunta=(
+                resultado[
+                    "pergunta"
+                ]
+            ),
+            trechos=(
+                resultado[
+                    "trechos"
+                ]
+            ),
+        )
+
+
     except Exception as erro:
-        print("\n[ERRO] Falha ao executar busca semântica.")
-        print(str(erro))
-        sys.exit(1)
+
+        print(
+            "\n[ERRO] Falha ao "
+            "executar busca semântica."
+        )
+
+        print(
+            str(
+                erro
+            )
+        )
+
+        sys.exit(
+            1
+        )
 
 
 if __name__ == "__main__":
-    main()
+
+    base = (
+        Path(
+            sys.argv[1]
+        )
+        if len(sys.argv) > 1
+        else BASE_VETORIAL
+    )
+
+    main(
+        base
+    )

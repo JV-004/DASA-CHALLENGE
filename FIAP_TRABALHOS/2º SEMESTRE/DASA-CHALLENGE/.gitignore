@@ -26,3 +26,17 @@ build/
 
 # Cache de modelos do sentence-transformers / HuggingFace
 .cache/
+# Uploads temporários da aplicação final (Sprint 3)
+sprint3/interface/uploads/
+
+# Artefatos temporários de execução/deploy
+sprint3/interface/runtime/
+
+# Logs gerados durante execução e auditoria
+sprint4/logs/
+
+# Segredos locais do Streamlit - nunca versionar
+.streamlit/secrets.toml
+# Ambientes virtuais Python
+.venv/
+venv/

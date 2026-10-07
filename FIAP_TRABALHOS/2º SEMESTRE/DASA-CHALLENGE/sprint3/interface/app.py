@@ -47,6 +47,14 @@ PASTA_UPLOADS.mkdir(
     parents=True,
     exist_ok=True,
 )
+PASTA_RUNTIME = (
+    RAIZ
+    / "sprint3"
+    / "interface"
+    / "runtime"
+)
+
+
 
 
 # =============================================================================
@@ -1170,6 +1178,7 @@ VALORES_PADRAO = {
     "dados": None,
     "arquivo_relatorio": None,
     "relatorio_hash": None,
+    "base_vetorial_ativa": None,
     "messages": [],
     "assistente_preparado": False,
     "modo_resposta": "Paciente",
@@ -1318,6 +1327,8 @@ def processar_upload(
     st.session_state.relatorio_hash = (
         identificador
     )
+
+    st.session_state.base_vetorial_ativa = None
 
     st.session_state.resumo_relatorio = None
 
@@ -2041,6 +2052,7 @@ if st.session_state.dados is None:
     if JSON_DEMO.exists():
 
         try:
+
             st.session_state.dados = (
                 carregar_json(
                     JSON_DEMO
@@ -2049,6 +2061,16 @@ if st.session_state.dados is None:
 
             st.session_state.arquivo_relatorio = (
                 str(JSON_DEMO)
+            )
+
+            st.session_state.relatorio_hash = (
+                hash_bytes(
+                    JSON_DEMO.read_bytes()
+                )
+            )
+
+            st.session_state.base_vetorial_ativa = (
+                None
             )
 
             st.session_state.erro_relatorio = (
@@ -2062,14 +2084,13 @@ if st.session_state.dados is None:
             )
 
     else:
+
         st.session_state.erro_relatorio = (
             "O arquivo "
             "dados_estruturados.json "
             "não foi encontrado na "
             "raiz do projeto."
         )
-
-
 # =============================================================================
 # SINCRONIZAÇÃO DE NAVEGAÇÃO
 # =============================================================================
@@ -2151,7 +2172,6 @@ for chave_modo in (
 # =============================================================================
 # PREPARAÇÃO DO RAG
 # =============================================================================
-
 def preparar_assistente() -> None:
 
     if (
@@ -2187,15 +2207,52 @@ def preparar_assistente() -> None:
 
                 return
 
+            caminho_relatorio = Path(
+                st.session_state[
+                    "arquivo_relatorio"
+                ]
+            )
+
+            identificador = (
+                st.session_state
+                .relatorio_hash
+            )
+
+            if not identificador:
+
+                identificador = (
+                    hash_bytes(
+                        caminho_relatorio
+                        .read_bytes()
+                    )
+                )
+
+                st.session_state.relatorio_hash = (
+                    identificador
+                )
+
+            runtime_dir = (
+                PASTA_RUNTIME
+                / identificador
+            )
+
+            base_vetorial = (
+                runtime_dir
+                / "chromadb"
+            )
+
             resultado = subprocess.run(
                 [
                     sys.executable,
                     str(
                         pipeline_script
                     ),
-                    st.session_state[
-                        "arquivo_relatorio"
-                    ],
+                    str(
+                        caminho_relatorio
+                    ),
+                    str(
+                        runtime_dir
+                    ),
                 ],
                 cwd=str(RAIZ),
                 capture_output=True,
@@ -2207,6 +2264,7 @@ def preparar_assistente() -> None:
                 resultado.returncode
                 != 0
             ):
+
                 detalhe = (
                     resultado.stderr.strip()
                     or
@@ -2219,6 +2277,12 @@ def preparar_assistente() -> None:
                     "O pipeline retornou erro."
                 )
 
+            st.session_state.base_vetorial_ativa = (
+                str(
+                    base_vetorial
+                )
+            )
+
             st.session_state.assistente_preparado = (
                 True
             )
@@ -2229,6 +2293,14 @@ def preparar_assistente() -> None:
 
     except subprocess.TimeoutExpired:
 
+        st.session_state.assistente_preparado = (
+            False
+        )
+
+        st.session_state.base_vetorial_ativa = (
+            None
+        )
+
         st.error(
             "A preparação demorou "
             "mais que o esperado."
@@ -2236,12 +2308,19 @@ def preparar_assistente() -> None:
 
     except Exception as erro:
 
+        st.session_state.assistente_preparado = (
+            False
+        )
+
+        st.session_state.base_vetorial_ativa = (
+            None
+        )
+
         st.error(
             "Não foi possível preparar "
             "o assistente. "
             f"Detalhes: {erro}"
         )
-
 
 # =============================================================================
 # CONTROLES
@@ -2683,10 +2762,13 @@ def buscar_contexto_seguro(
         )
 
         return buscar_contexto(
-            pergunta,
-            top_k=3,
-            similaridade_minima=0.50,
-        )
+    pergunta,
+    top_k=5,
+    similaridade_minima=0.35,
+    base_path=Path(
+        base_vetorial
+    ),
+)
 
     except FileNotFoundError as erro:
 
